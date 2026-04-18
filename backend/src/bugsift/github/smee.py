@@ -36,10 +36,15 @@ _redis_client: Redis | None = None
 
 
 def _local_webhook_target() -> str:
-    """URL the forwarder POSTs events to. Inside compose we resolve the
-    backend service by name; outside compose, we loop back to localhost.
+    """URL the forwarder POSTs events to.
+
+    We go direct to the backend service over the compose network, which
+    means we BYPASS the nginx proxy. Nginx rewrites ``/api/...`` →
+    ``/...`` when it forwards, but since we're skipping nginx, we use
+    the un-prefixed route (``/webhooks/github``) that FastAPI actually
+    exposes. Getting this wrong 404s every webhook.
     """
-    return "http://backend:8000/api/webhooks/github"
+    return "http://backend:8000/webhooks/github"
 
 
 async def _redis() -> Redis:
