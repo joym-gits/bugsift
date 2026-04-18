@@ -1,0 +1,30 @@
+services:
+  postgres:
+    ports:
+      - "5432:5432"
+
+  redis:
+    ports:
+      - "6379:6379"
+
+  backend:
+    command: ["uvicorn", "bugsift.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    volumes:
+      - ./backend/src:/app/src
+      - ./backend/alembic:/app/alembic
+      - ./backend/tests:/app/tests
+    ports:
+      - "8000:8000"
+
+  worker:
+    command: ["python", "-m", "bugsift.workers.runner"]
+    volumes:
+      - ./backend/src:/app/src
+
+  frontend:
+    command: ["npm", "run", "dev"]
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+    ports:
+      - "3000:3000"
