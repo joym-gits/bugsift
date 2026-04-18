@@ -11,7 +11,8 @@ export default function DashboardPage() {
   const me = useMe();
   const logout = useLogout();
   const signedIn = Boolean(me.data);
-  const cards = useCards(signedIn);
+  // Dashboard shows actionable work; posted/skipped cards live in /history.
+  const cards = useCards(signedIn, { status: "pending", limit: 50 });
   const repos = useRepos(signedIn);
 
   return (
@@ -29,6 +30,9 @@ export default function DashboardPage() {
               <span className="text-sm text-muted-foreground">
                 signed in as <strong className="font-medium">{me.data.github_login}</strong>
               </span>
+              <Link href="/history" className="text-sm underline underline-offset-4">
+                History
+              </Link>
               <Link href="/settings" className="text-sm underline underline-offset-4">
                 Settings
               </Link>

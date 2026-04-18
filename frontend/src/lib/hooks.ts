@@ -129,10 +129,27 @@ export type Repo = {
   indexed_at: string | null;
 };
 
-export function useCards(enabled: boolean) {
+export type CardFilters = {
+  status?: string;
+  classification?: string;
+  verdict?: string;
+  limit?: number;
+};
+
+function cardsPath(filters: CardFilters): string {
+  const params = new URLSearchParams();
+  if (filters.status) params.set("status", filters.status);
+  if (filters.classification) params.set("classification", filters.classification);
+  if (filters.verdict) params.set("verdict", filters.verdict);
+  if (filters.limit) params.set("limit", String(filters.limit));
+  const qs = params.toString();
+  return qs ? `/cards?${qs}` : "/cards";
+}
+
+export function useCards(enabled: boolean, filters: CardFilters = {}) {
   return useQuery<Card[]>({
-    queryKey: ["cards"],
-    queryFn: () => apiFetch<Card[]>("/cards"),
+    queryKey: ["cards", filters],
+    queryFn: () => apiFetch<Card[]>(cardsPath(filters)),
     enabled,
   });
 }

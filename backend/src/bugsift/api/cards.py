@@ -67,7 +67,15 @@ async def list_cards(
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
     limit: int = 50,
+    status: str | None = None,
+    classification: str | None = None,
+    verdict: str | None = None,
 ) -> list[CardResponse]:
+    """List triage cards the current user owns, newest first.
+
+    All filters are optional; the dashboard calls without any (so it sees the
+    whole recent queue) and the history page passes them to narrow the view.
+    """
     repo = aliased(Repo)
     install = aliased(Installation)
     stmt = (
@@ -75,9 +83,14 @@ async def list_cards(
         .join(repo, TriageCard.repo_id == repo.id)
         .join(install, repo.installation_id == install.id)
         .where(install.user_id == user.id)
-        .order_by(TriageCard.created_at.desc())
-        .limit(limit)
     )
+    if status:
+        stmt = stmt.where(TriageCard.status == status)
+    if classification:
+        stmt = stmt.where(TriageCard.classification == classification)
+    if verdict:
+        stmt = stmt.where(TriageCard.reproduction_verdict == verdict)
+    stmt = stmt.order_by(TriageCard.created_at.desc()).limit(limit)
     rows = (await session.execute(stmt)).all()
     return [_card_response(card, full_name, branch) for card, full_name, branch in rows]
 
