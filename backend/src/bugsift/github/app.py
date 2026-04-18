@@ -65,6 +65,19 @@ def generate_jwt(settings: Settings | None = None, *, now: int | None = None) ->
     return jwt.encode(payload, _load_private_key(settings), algorithm="RS256")
 
 
+def generate_jwt_from_config(app_id: str, private_key_pem: str, *, now: int | None = None) -> str:
+    """Same JWT shape as :func:`generate_jwt` but driven by explicit values.
+
+    Used by the webhook + card-approve paths once they've resolved credentials
+    via :func:`bugsift.github.config.load_app_config`.
+    """
+    if not app_id or not private_key_pem:
+        raise AppConfigError("GitHub App id or private key missing")
+    current = int(time.time()) if now is None else now
+    payload = {"iat": current - 60, "exp": current + 9 * 60, "iss": app_id}
+    return jwt.encode(payload, private_key_pem, algorithm="RS256")
+
+
 _installation_token_cache: dict[int, InstallationToken] = {}
 _SAFETY_MARGIN = 120  # refresh 2 minutes before actual expiry
 
@@ -74,14 +87,23 @@ async def get_installation_token(
     *,
     settings: Settings | None = None,
     client: httpx.AsyncClient | None = None,
+    app_id: str | None = None,
+    private_key_pem: str | None = None,
 ) -> str:
+    """Mint (or reuse) an installation token. Pass ``app_id`` + ``private_key_pem``
+    to drive this from the DB-stored App credentials; otherwise the env-based
+    :class:`Settings` is used.
+    """
     settings = settings or get_settings()
     now = int(time.time())
     cached = _installation_token_cache.get(installation_id)
     if cached and cached.expires_at - _SAFETY_MARGIN > now:
         return cached.token
 
-    jwt_token = generate_jwt(settings, now=now)
+    if app_id and private_key_pem:
+        jwt_token = generate_jwt_from_config(app_id, private_key_pem, now=now)
+    else:
+        jwt_token = generate_jwt(settings, now=now)
     url = f"{GITHUB_API_URL}/app/installations/{installation_id}/access_tokens"
     headers = {
         "Authorization": f"Bearer {jwt_token}",

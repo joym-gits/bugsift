@@ -1,10 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import { useMemo, useState } from "react";
+import { History as HistoryIcon } from "lucide-react";
 
+import { AppShell, EmptyState, PageHeader, Skeleton } from "@/components/AppShell";
 import { TriageCard } from "@/components/TriageCard";
-import { API_BASE_URL } from "@/lib/api";
 import { type CardFilters, useCards, useMe } from "@/lib/hooks";
 
 const CLASSIFICATION_OPTIONS = [
@@ -50,92 +50,62 @@ export default function HistoryPage() {
   );
   const cards = useCards(signedIn, filters);
 
-  if (me.isLoading) {
-    return (
-      <main className="container mx-auto py-16 text-muted-foreground">loading…</main>
-    );
-  }
-
-  if (!signedIn) {
-    return (
-      <main className="container mx-auto flex min-h-screen flex-col justify-center gap-6 py-16">
-        <h1 className="text-3xl font-semibold tracking-tight">History</h1>
-        <p className="text-muted-foreground">Sign in to see past triage decisions.</p>
-        <a
-          href={`${API_BASE_URL}/auth/github/start`}
-          className="inline-flex h-10 w-fit items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-        >
-          Sign in with GitHub
-        </a>
-      </main>
-    );
-  }
-
   return (
-    <main className="container mx-auto flex flex-col gap-6 py-16">
-      <header className="flex items-center justify-between">
-        <div className="space-y-1">
-          <h1 className="text-3xl font-semibold tracking-tight">History</h1>
-          <p className="text-sm text-muted-foreground">
-            Every triage card, read-only. Filters are AND-combined.
-          </p>
-        </div>
-        <Link
-          href="/dashboard"
-          className="text-sm underline underline-offset-4"
-        >
-          ← Dashboard
-        </Link>
-      </header>
+    <AppShell me={me.data ?? null}>
+      {!signedIn ? (
+        <EmptyState
+          icon={HistoryIcon}
+          title="Sign in to see history"
+          description="Every triage decision lives here — filterable by status, classification, and reproduction verdict."
+        />
+      ) : (
+        <>
+          <PageHeader
+            title="History"
+            description="Every card, read-only. Filters are AND-combined."
+          />
 
-      <section className="flex flex-wrap gap-3 rounded-lg border bg-card p-4 shadow-sm">
-        <Filter
-          id="status"
-          label="Status"
-          value={status}
-          onChange={setStatus}
-          options={STATUS_OPTIONS}
-        />
-        <Filter
-          id="classification"
-          label="Classification"
-          value={classification}
-          onChange={setClassification}
-          options={CLASSIFICATION_OPTIONS}
-        />
-        <Filter
-          id="verdict"
-          label="Reproduction verdict"
-          value={verdict}
-          onChange={setVerdict}
-          options={VERDICT_OPTIONS}
-        />
-        <div className="flex items-end">
-          <span className="text-xs text-muted-foreground">
-            showing {cards.data?.length ?? 0} card
-            {cards.data && cards.data.length === 1 ? "" : "s"}
-          </span>
-        </div>
-      </section>
+          <section className="mb-6 flex flex-wrap gap-3 rounded-lg border bg-card p-4 shadow-sm">
+            <Filter id="status" label="Status" value={status} onChange={setStatus} options={STATUS_OPTIONS} />
+            <Filter
+              id="classification"
+              label="Classification"
+              value={classification}
+              onChange={setClassification}
+              options={CLASSIFICATION_OPTIONS}
+            />
+            <Filter id="verdict" label="Verdict" value={verdict} onChange={setVerdict} options={VERDICT_OPTIONS} />
+            <div className="flex flex-1 items-end justify-end">
+              <span className="text-xs text-muted-foreground">
+                showing {cards.data?.length ?? 0} card
+                {cards.data && cards.data.length === 1 ? "" : "s"}
+              </span>
+            </div>
+          </section>
 
-      <section>
-        {cards.isLoading ? (
-          <p className="text-sm text-muted-foreground">loading…</p>
-        ) : cards.data && cards.data.length > 0 ? (
-          <ul className="space-y-3">
-            {cards.data.map((c) => (
-              <li key={c.id}>
-                <TriageCard card={c} />
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            No cards match these filters.
-          </p>
-        )}
-      </section>
-    </main>
+          {cards.isLoading ? (
+            <div className="space-y-3">
+              <Skeleton className="h-32 w-full" />
+              <Skeleton className="h-32 w-full" />
+            </div>
+          ) : cards.data && cards.data.length > 0 ? (
+            <ul className="space-y-3">
+              {cards.data.map((c) => (
+                <li key={c.id}>
+                  <TriageCard card={c} />
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <EmptyState
+              icon={HistoryIcon}
+              title="No matching cards"
+              description="Try loosening the filters above. If your installation is fresh, open an issue on an installed repo to start building history."
+            />
+          )}
+        </>
+      )}
+    </AppShell>
   );
 }
 

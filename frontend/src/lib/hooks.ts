@@ -181,6 +181,21 @@ export function useTestKey() {
   });
 }
 
+export type AppStatus = {
+  configured: boolean;
+  name?: string | null;
+  slug?: string | null;
+  html_url?: string | null;
+};
+
+export function useAppStatus(enabled: boolean) {
+  return useQuery<AppStatus>({
+    queryKey: ["app-status"],
+    queryFn: () => apiFetch<AppStatus>("/github/app/manifest/status"),
+    enabled,
+  });
+}
+
 export function useApproveCard() {
   const qc = useQueryClient();
   return useMutation({

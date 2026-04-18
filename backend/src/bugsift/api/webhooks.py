@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bugsift.api.deps import get_session
 from bugsift.config import get_settings
 from bugsift.db.models import Installation, Repo, RepoConfig
+from bugsift.github import config as app_config
 from bugsift.github.rate_limit import allow_installation_event
 from bugsift.github.webhooks import verify_signature
 from bugsift.workers import indexing as indexing_jobs
@@ -83,11 +84,12 @@ async def github_webhook(
     x_github_event: str | None = Header(default=None),
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, str]:
-    secret = get_settings().github_app_webhook_secret
+    cfg = await app_config.load_app_config(session)
+    secret = cfg.webhook_secret if cfg else get_settings().github_app_webhook_secret
     if not secret:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="GITHUB_APP_WEBHOOK_SECRET is not configured",
+            detail="GitHub App webhook secret not configured",
         )
     body = await request.body()
     if not verify_signature(body, x_hub_signature_256, secret):

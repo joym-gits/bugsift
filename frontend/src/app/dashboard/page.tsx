@@ -1,126 +1,176 @@
 "use client";
 
 import Link from "next/link";
+import { Inbox, GitBranch, Rocket, ArrowRight } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
+import { AppShell, EmptyState, PageHeader, Skeleton } from "@/components/AppShell";
 import { TriageCard } from "@/components/TriageCard";
+import { Button } from "@/components/ui/button";
 import { API_BASE_URL } from "@/lib/api";
-import { useCards, useLogout, useMe, useRepos } from "@/lib/hooks";
+import { type Repo, useAppStatus, useCards, useMe, useRepos } from "@/lib/hooks";
 
 export default function DashboardPage() {
   const me = useMe();
-  const logout = useLogout();
   const signedIn = Boolean(me.data);
-  // Dashboard shows actionable work; posted/skipped cards live in /history.
   const cards = useCards(signedIn, { status: "pending", limit: 50 });
   const repos = useRepos(signedIn);
+  const appStatus = useAppStatus(signedIn);
 
   return (
-    <main className="container mx-auto flex min-h-screen flex-col gap-6 py-16">
-      <header className="flex items-start justify-between">
-        <div className="space-y-2">
-          <h1 className="text-4xl font-semibold tracking-tight">bugsift</h1>
-          <p className="text-muted-foreground">Sift signal from noise in your issue tracker.</p>
-        </div>
-        <div className="flex items-center gap-3">
-          {me.isLoading ? (
-            <span className="text-sm text-muted-foreground">loading…</span>
-          ) : me.data ? (
-            <>
-              <span className="text-sm text-muted-foreground">
-                signed in as <strong className="font-medium">{me.data.github_login}</strong>
-              </span>
-              <Link href="/history" className="text-sm underline underline-offset-4">
-                History
-              </Link>
-              <Link href="/settings" className="text-sm underline underline-offset-4">
-                Settings
-              </Link>
-              <Button variant="outline" size="sm" onClick={() => logout.mutate()}>
-                Log out
-              </Button>
-            </>
-          ) : (
-            <a
-              href={`${API_BASE_URL}/auth/github/start`}
-              className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-            >
-              Sign in with GitHub
-            </a>
-          )}
-        </div>
-      </header>
-
+    <AppShell me={me.data ?? null}>
       {!signedIn ? (
-        <SignedOutPanel />
+        <SignedOutHero />
       ) : (
-        <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
-          <aside className="rounded-lg border bg-card p-4 text-card-foreground shadow-sm">
-            <h2 className="text-sm font-medium text-muted-foreground">Installed repos</h2>
-            {repos.isLoading ? (
-              <p className="mt-3 text-sm text-muted-foreground">loading…</p>
-            ) : repos.data && repos.data.length > 0 ? (
-              <ul className="mt-3 space-y-2 text-sm">
-                {repos.data.map((r) => (
-                  <li key={r.id} className="flex items-center justify-between gap-2">
-                    <span className="truncate font-medium">{r.full_name}</span>
-                    <span className="text-xs text-muted-foreground">{r.indexing_status}</span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="mt-3 text-sm text-muted-foreground">
-                Install the GitHub App on a repo to get started.
-              </p>
-            )}
-          </aside>
+        <>
+          <PageHeader
+            title="Triage queue"
+            description={
+              cards.data
+                ? `${cards.data.length} card${cards.data.length === 1 ? "" : "s"} waiting on you`
+                : "loading…"
+            }
+          />
 
-          <section className="rounded-lg border bg-card p-6 text-card-foreground shadow-sm">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-medium">Triage queue</h2>
-              <span className="text-xs text-muted-foreground">
-                {cards.data?.length ?? 0} card
-                {cards.data && cards.data.length === 1 ? "" : "s"}
-              </span>
-            </div>
-            {cards.isLoading ? (
-              <p className="mt-3 text-sm text-muted-foreground">loading…</p>
-            ) : cards.data && cards.data.length > 0 ? (
-              <ul className="mt-4 space-y-3">
-                {cards.data.map((c) => (
-                  <li key={c.id}>
-                    <TriageCard card={c} />
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="mt-3 text-sm text-muted-foreground">
-                No cards yet. Open an issue on an installed repo to see one appear.
-              </p>
-            )}
-          </section>
-        </div>
+          {appStatus.data && !appStatus.data.configured && (
+            <OnboardingBanner />
+          )}
+
+          <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
+            <aside className="space-y-4">
+              <RepoList loading={repos.isLoading} repos={repos.data ?? []} />
+            </aside>
+
+            <section>
+              {cards.isLoading ? (
+                <div className="space-y-3">
+                  <Skeleton className="h-36 w-full" />
+                  <Skeleton className="h-36 w-full" />
+                </div>
+              ) : cards.data && cards.data.length > 0 ? (
+                <ul className="space-y-3">
+                  {cards.data.map((c) => (
+                    <li key={c.id}>
+                      <TriageCard card={c} />
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <EmptyState
+                  icon={Inbox}
+                  title="Inbox zero"
+                  description="No pending cards. Open an issue on an installed repo and it'll show up here within ~90 seconds."
+                  action={
+                    <Link
+                      href="/history"
+                      className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+                    >
+                      View past decisions →
+                    </Link>
+                  }
+                />
+              )}
+            </section>
+          </div>
+        </>
       )}
-    </main>
+    </AppShell>
   );
 }
 
-function SignedOutPanel() {
+function RepoList({ loading, repos }: { loading: boolean; repos: Repo[] }) {
   return (
-    <section className="rounded-lg border bg-card p-6 text-card-foreground shadow-sm">
-      <h2 className="text-lg font-medium">Phase 3 — webhooks and installations</h2>
-      <p className="mt-2 text-sm text-muted-foreground">
-        Sign in with GitHub, then install the bugsift App on a repo. Issues opened on that
-        repo will appear here as triage cards.
+    <div className="rounded-lg border bg-card p-4 shadow-sm">
+      <div className="mb-3 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        <GitBranch className="h-3.5 w-3.5" />
+        Installed repos
+      </div>
+      {loading ? (
+        <div className="space-y-2">
+          <Skeleton className="h-5 w-3/4" />
+          <Skeleton className="h-5 w-1/2" />
+        </div>
+      ) : repos && repos.length > 0 ? (
+        <ul className="space-y-2 text-sm">
+          {repos.map((r) => (
+            <li key={r.id} className="flex items-center justify-between gap-2">
+              <span className="truncate font-medium">{r.full_name}</span>
+              <span className="shrink-0 text-xs text-muted-foreground">{r.indexing_status}</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          No repos yet. Install the App from{" "}
+          <Link href="/onboarding" className="underline underline-offset-4">
+            onboarding
+          </Link>
+          .
+        </p>
+      )}
+    </div>
+  );
+}
+
+function OnboardingBanner() {
+  return (
+    <div className="mb-6 flex items-center gap-3 rounded-lg border border-primary/30 bg-primary/5 p-4">
+      <Rocket className="h-5 w-5 shrink-0 text-primary" />
+      <div className="flex-1 text-sm">
+        <div className="font-medium">Finish setup to start triaging</div>
+        <div className="text-muted-foreground">
+          Register your GitHub App and install it on a repo — takes about two minutes.
+        </div>
+      </div>
+      <Link
+        href="/onboarding"
+        className="inline-flex h-9 shrink-0 items-center gap-1 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+      >
+        Continue <ArrowRight className="h-3.5 w-3.5" />
+      </Link>
+    </div>
+  );
+}
+
+function SignedOutHero() {
+  return (
+    <div className="mx-auto max-w-2xl py-24 text-center">
+      <div className="mb-6 inline-flex items-center gap-2 rounded-full border bg-card px-3 py-1 text-xs font-medium text-muted-foreground">
+        <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+        For open-source maintainers
+      </div>
+      <h1 className="text-5xl font-semibold tracking-tight">
+        Sift signal from noise in your issue tracker.
+      </h1>
+      <p className="mt-5 text-lg text-muted-foreground">
+        bugsift classifies, deduplicates, reproduces, and routes every incoming
+        issue so your attention goes only to the ones that need it.
       </p>
-      <div className="mt-4">
+      <div className="mt-8 flex items-center justify-center gap-3">
+        <a
+          href={`${API_BASE_URL}/auth/github/start`}
+          className="inline-flex h-11 items-center gap-2 rounded-md bg-primary px-6 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+        >
+          Sign in with GitHub <ArrowRight className="h-4 w-4" />
+        </a>
         <a
           href={`${API_BASE_URL}/health`}
-          className="inline-flex h-10 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground"
+          className="inline-flex h-11 items-center rounded-md border border-input bg-background px-6 text-sm font-medium hover:bg-accent hover:text-accent-foreground"
         >
           Check backend
         </a>
       </div>
-    </section>
+      <div className="mt-16 grid gap-4 text-left sm:grid-cols-3">
+        {[
+          { title: "Classify", copy: "bug / feature / question / docs / spam / other with confidence." },
+          { title: "Dedup + retrieve", copy: "Cosine search + LLM judge over past issues and your code." },
+          { title: "Reproduce + draft", copy: "Hardened Docker sandbox runs minimal repro, then drafts the comment." },
+        ].map((f) => (
+          <div key={f.title} className="rounded-lg border bg-card p-4">
+            <div className="text-sm font-medium">{f.title}</div>
+            <div className="mt-1 text-sm text-muted-foreground">{f.copy}</div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }

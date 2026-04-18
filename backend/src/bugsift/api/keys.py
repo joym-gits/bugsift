@@ -62,10 +62,18 @@ async def create_key(
         await session.delete(existing)
         await session.flush()
 
+    try:
+        encrypted = crypto.encrypt(body.key)
+    except crypto.EncryptionKeyMissing as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(e),
+        ) from e
+
     row = UserApiKey(
         user_id=user.id,
         provider=body.provider,
-        encrypted_key=crypto.encrypt(body.key),
+        encrypted_key=encrypted,
         masked_hint=crypto.mask_key(body.key),
     )
     session.add(row)

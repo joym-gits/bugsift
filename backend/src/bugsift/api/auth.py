@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bugsift.api.deps import get_current_user, get_optional_user, get_session
 from bugsift.config import get_settings
 from bugsift.db.models import User
+from bugsift.github import config as app_config
 from bugsift.github import oauth as github_oauth
 
 logger = logging.getLogger(__name__)
@@ -28,19 +29,33 @@ class MeResponse(BaseModel):
 
 
 @router.get("/github/start")
-async def github_start(request: Request) -> RedirectResponse:
+async def github_start(
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+) -> RedirectResponse:
+    cfg = await app_config.load_app_config(session)
     settings = get_settings()
-    if not settings.oauth_configured:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=(
-                "GitHub OAuth is not configured. Register the GitHub App and set "
-                "GITHUB_APP_CLIENT_ID and GITHUB_APP_CLIENT_SECRET — see docs/installation.md."
-            ),
-        )
+    if cfg is None:
+        # Legacy env path — keep 503 with hint for operators who still configure by hand.
+        if not settings.oauth_configured:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    "GitHub OAuth is not configured. Register the App from the "
+                    "onboarding wizard, or set GITHUB_APP_CLIENT_ID and "
+                    "GITHUB_APP_CLIENT_SECRET in .env."
+                ),
+            )
+        client_id = settings.github_app_client_id
+    else:
+        client_id = cfg.client_id
     state = secrets.token_urlsafe(32)
     request.session[OAUTH_STATE_KEY] = state
-    url = github_oauth.build_authorize_url(settings, state)
+    url = github_oauth.build_authorize_url_for(
+        client_id=client_id,
+        redirect_uri=settings.oauth_callback_url,
+        state=state,
+    )
     return RedirectResponse(url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
 
 
@@ -56,7 +71,15 @@ async def github_callback(
     if not expected_state or not secrets.compare_digest(expected_state, state):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="oauth state mismatch")
 
-    token = await github_oauth.exchange_code_for_token(settings, code)
+    cfg = await app_config.load_app_config(session)
+    client_id = cfg.client_id if cfg else settings.github_app_client_id
+    client_secret = cfg.client_secret if cfg else settings.github_app_client_secret
+    token = await github_oauth.exchange_code_for_token_direct(
+        code=code,
+        client_id=client_id,
+        client_secret=client_secret,
+        redirect_uri=settings.oauth_callback_url,
+    )
     gh_user = await github_oauth.fetch_user(token)
 
     user = (

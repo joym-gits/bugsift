@@ -10,6 +10,7 @@ from bugsift.api.cards import router as cards_router
 from bugsift.api.github import router as github_router
 from bugsift.api.keys import router as keys_router
 from bugsift.api.llm import router as llm_router
+from bugsift.api.manifest import router as manifest_router
 from bugsift.api.repos import router as repos_router
 from bugsift.api.usage import router as usage_router
 from bugsift.api.webhooks import router as webhooks_router
@@ -57,6 +58,7 @@ def create_app() -> FastAPI:
     app.include_router(repos_router)
     app.include_router(llm_router)
     app.include_router(usage_router)
+    app.include_router(manifest_router)
 
     return app
 

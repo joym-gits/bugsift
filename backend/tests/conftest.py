@@ -13,6 +13,7 @@ from bugsift.api.main import create_app
 from bugsift.config import get_settings
 from bugsift.db.models import (
     Base,
+    GithubAppCredentials,
     Installation,
     LLMUsage,
     Repo,
@@ -21,6 +22,7 @@ from bugsift.db.models import (
     User,
     UserApiKey,
 )
+from bugsift.github import config as github_app_config
 from bugsift.security import crypto
 
 TEST_DB_URL = "sqlite+aiosqlite:///:memory:"
@@ -34,9 +36,12 @@ def _test_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(s, "env", "development")
     monkeypatch.setattr(s, "github_app_client_id", "")
     monkeypatch.setattr(s, "github_app_client_secret", "")
+    monkeypatch.setattr(s, "github_app_webhook_secret", "")
     crypto._fernet.cache_clear()
+    github_app_config.clear_cache()
     yield
     crypto._fernet.cache_clear()
+    github_app_config.clear_cache()
 
 
 @pytest_asyncio.fixture
@@ -58,6 +63,7 @@ async def db_engine() -> AsyncIterator:
                 RepoConfig.__table__,
                 TriageCard.__table__,
                 LLMUsage.__table__,
+                GithubAppCredentials.__table__,
             ],
         )
     yield engine

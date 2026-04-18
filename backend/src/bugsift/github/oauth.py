@@ -28,22 +28,43 @@ class GithubUser:
 
 
 def build_authorize_url(settings: Settings, state: str) -> str:
-    params = {
-        "client_id": settings.github_app_client_id,
-        "redirect_uri": settings.oauth_callback_url,
-        "state": state,
-    }
+    return build_authorize_url_for(
+        client_id=settings.github_app_client_id,
+        redirect_uri=settings.oauth_callback_url,
+        state=state,
+    )
+
+
+def build_authorize_url_for(*, client_id: str, redirect_uri: str, state: str) -> str:
+    params = {"client_id": client_id, "redirect_uri": redirect_uri, "state": state}
     return f"{GITHUB_AUTHORIZE_URL}?{urlencode(params)}"
 
 
 async def exchange_code_for_token(
     settings: Settings, code: str, *, client: httpx.AsyncClient | None = None
 ) -> str:
+    return await exchange_code_for_token_direct(
+        code=code,
+        client_id=settings.github_app_client_id,
+        client_secret=settings.github_app_client_secret,
+        redirect_uri=settings.oauth_callback_url,
+        client=client,
+    )
+
+
+async def exchange_code_for_token_direct(
+    *,
+    code: str,
+    client_id: str,
+    client_secret: str,
+    redirect_uri: str,
+    client: httpx.AsyncClient | None = None,
+) -> str:
     payload = {
-        "client_id": settings.github_app_client_id,
-        "client_secret": settings.github_app_client_secret,
+        "client_id": client_id,
+        "client_secret": client_secret,
         "code": code,
-        "redirect_uri": settings.oauth_callback_url,
+        "redirect_uri": redirect_uri,
     }
     headers = {"Accept": "application/json"}
     async with _client(client) as c:

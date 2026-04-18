@@ -17,10 +17,19 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   });
   if (response.status === 204) return undefined as T;
   const text = await response.text();
-  const body = text ? JSON.parse(text) : null;
+  // Servers can return non-JSON bodies (plain-text 500s, empty bodies on
+  // intermediate proxy errors). Try to parse; fall back to the raw text.
+  let body: any = null;
+  if (text) {
+    try {
+      body = JSON.parse(text);
+    } catch {
+      body = { detail: text };
+    }
+  }
   if (!response.ok) {
     const detail = body?.detail ?? response.statusText;
-    throw new ApiError(response.status, detail);
+    throw new ApiError(response.status, String(detail));
   }
   return body as T;
 }

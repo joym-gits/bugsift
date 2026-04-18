@@ -188,3 +188,30 @@ class LLMUsage(Base):
     cost_usd: Mapped[float] = mapped_column(Numeric(10, 6), nullable=False, default=0)
     step_name: Mapped[str] = mapped_column(String(32), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+
+class GithubAppCredentials(Base):
+    """Singleton (id == 1) — the operator's registered bugsift GitHub App.
+
+    Written by the manifest flow. Secrets are Fernet-encrypted at rest using
+    the same key that protects user_api_keys. One App per deployment.
+    """
+
+    __tablename__ = "github_app_credentials"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    github_app_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    slug: Mapped[str] = mapped_column(String(255), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    owner_login: Mapped[str] = mapped_column(String(255), nullable=False)
+    html_url: Mapped[str] = mapped_column(Text, nullable=False)
+    client_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    client_secret_encrypted: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    webhook_secret_encrypted: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    private_key_pem_encrypted: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
