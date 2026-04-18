@@ -73,7 +73,10 @@ function OnboardingInner() {
         {needsSignIn ? (
           <SignInPrompt nextStep={currentStep} />
         ) : currentStep === "app" ? (
-          <AppStep configured={appConfigured} />
+          <AppStep
+            configured={appConfigured}
+            tunnelUrl={appStatus.data?.tunnel_url}
+          />
         ) : currentStep === "install" ? (
           <InstallStep
             appHtmlUrl={appStatus.data?.html_url ?? null}
@@ -166,26 +169,28 @@ function StepShell({
   );
 }
 
-function AppStep({ configured }: { configured: boolean }) {
-  const [webhookUrl, setWebhookUrl] = useState("");
+function AppStep({
+  configured,
+  tunnelUrl,
+}: {
+  configured: boolean;
+  tunnelUrl: string | null | undefined;
+}) {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const onStart = async () => {
     setError(null);
-    if (!webhookUrl.trim() || !/^https?:\/\//.test(webhookUrl)) {
-      setError("Enter a publicly-reachable webhook URL (smee / ngrok / cloudflared).");
-      return;
-    }
     setSubmitting(true);
     try {
-      // POST returns HTML that auto-submits to GitHub. Open it in a new tab
-      // so the current onboarding state is preserved.
+      // Backend auto-provisions a smee channel + starts the in-process
+      // forwarder, then returns an HTML form that auto-submits the manifest
+      // to GitHub. The operator never sees a terminal.
       const response = await fetch(`${API_BASE_URL}/github/app/manifest/start`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ webhook_url: webhookUrl.trim() }),
+        body: JSON.stringify({}),
       });
       if (!response.ok) {
         const body = await response.text();
@@ -210,67 +215,54 @@ function AppStep({ configured }: { configured: boolean }) {
     <section className="rounded-lg border bg-card p-6 shadow-sm">
       <h2 className="text-xl font-semibold">Register your GitHub App</h2>
       <p className="mt-1 text-sm text-muted-foreground">
-        We&apos;ll pre-fill a manifest and hand you to GitHub. You click
-        &ldquo;Create GitHub App&rdquo; once, they create it, and we store
-        the credentials &mdash; encrypted &mdash; in bugsift&apos;s database.
-        Zero .env edits.
+        One click. bugsift hands you to GitHub with a pre-filled manifest, you
+        confirm, and come back. No terminal, no &ldquo;paste this URL&rdquo;,
+        no .env editing.
       </p>
 
       {configured ? (
         <div className="mt-5 flex items-center gap-2 rounded-md border border-primary/30 bg-primary/5 p-3 text-sm">
           <Check className="h-4 w-4 text-primary" />
-          <span>Your App is already registered. You can continue to the next step.</span>
+          <span>Your App is already registered. Continue to the next step.</span>
         </div>
-      ) : null}
-
-      <div className="mt-6 rounded-md border border-amber-500/30 bg-amber-500/5 p-4 text-sm">
-        <div className="flex items-center gap-2 font-medium">
-          <Terminal className="h-4 w-4" />
-          Before you start: run a tunnel
+      ) : (
+        <div className="mt-5 flex items-start gap-2 rounded-md border bg-muted/30 p-3 text-sm">
+          <Terminal className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+          <div className="text-muted-foreground">
+            <div className="font-medium text-foreground">How we route GitHub webhooks</div>
+            Your localhost can&apos;t receive webhooks directly, so bugsift
+            auto-provisions a free{" "}
+            <a
+              href="https://smee.io"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline underline-offset-4"
+            >
+              smee.io
+            </a>{" "}
+            channel and relays events in-process. You never see it unless
+            something breaks.
+            {tunnelUrl && (
+              <div className="mt-1 font-mono text-xs text-foreground/60">
+                tunnel: {tunnelUrl}
+              </div>
+            )}
+          </div>
         </div>
-        <p className="mt-1 text-muted-foreground">
-          GitHub can&apos;t reach <code>localhost</code>. Create a free smee channel at{" "}
-          <a
-            href="https://smee.io/new"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="underline underline-offset-4"
-          >
-            smee.io/new
-          </a>{" "}
-          and keep that tab open to grab the channel URL. Then run this in a terminal:
-        </p>
-        <CopyBlock
-          command={`npx smee-client --url <your-smee-url> --target http://localhost:8080/api/webhooks/github`}
-        />
-        <p className="mt-2 text-muted-foreground">
-          Paste the smee URL below. Advanced users: any public URL that forwards to
-          <code> http://localhost:8080/api/webhooks/github</code> works (ngrok, cloudflared).
-        </p>
-      </div>
+      )}
 
-      <div className="mt-6 space-y-1">
-        <Label htmlFor="webhook-url">Webhook URL</Label>
-        <Input
-          id="webhook-url"
-          type="url"
-          placeholder="https://smee.io/<your-channel>"
-          value={webhookUrl}
-          onChange={(e) => setWebhookUrl(e.target.value)}
-        />
-      </div>
       {error && (
         <p className="mt-3 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
           {error}
         </p>
       )}
       <div className="mt-5 flex items-center gap-3">
-        <Button size="lg" onClick={onStart} disabled={submitting}>
-          {submitting ? "redirecting…" : "Create GitHub App"}
+        <Button size="lg" onClick={onStart} disabled={submitting || configured}>
+          {submitting ? "redirecting…" : configured ? "Already registered" : "Register GitHub App"}
         </Button>
         {configured && (
           <Link href="/onboarding?step=install" className="text-sm underline underline-offset-4">
-            Skip to step 2 →
+            Continue to step 2 →
           </Link>
         )}
       </div>

@@ -186,6 +186,8 @@ export type AppStatus = {
   name?: string | null;
   slug?: string | null;
   html_url?: string | null;
+  tunnel_url?: string | null;
+  tunnel_running?: boolean;
 };
 
 export function useAppStatus(enabled: boolean) {

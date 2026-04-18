@@ -23,6 +23,7 @@ from bugsift.db.models import (
     UserApiKey,
 )
 from bugsift.github import config as github_app_config
+from bugsift.github import smee as github_smee
 from bugsift.security import crypto
 
 TEST_DB_URL = "sqlite+aiosqlite:///:memory:"
@@ -37,6 +38,12 @@ def _test_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(s, "github_app_client_id", "")
     monkeypatch.setattr(s, "github_app_client_secret", "")
     monkeypatch.setattr(s, "github_app_webhook_secret", "")
+    # Smee module pokes Redis in /status; stub the lookups for tests.
+    async def _no_url() -> str | None:
+        return None
+
+    monkeypatch.setattr(github_smee, "get_tunnel_url", _no_url)
+    monkeypatch.setattr(github_smee, "forwarder_status", lambda: {"running": False, "tunnel_url": None})
     crypto._fernet.cache_clear()
     github_app_config.clear_cache()
     yield

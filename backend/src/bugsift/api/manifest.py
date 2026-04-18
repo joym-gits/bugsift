@@ -31,6 +31,7 @@ from bugsift.api.deps import get_current_user, get_session
 from bugsift.config import get_settings
 from bugsift.db.models import GithubAppCredentials, User
 from bugsift.github import config as app_config
+from bugsift.github import smee
 from bugsift.security import crypto
 
 logger = logging.getLogger(__name__)
@@ -41,7 +42,9 @@ SESSION_WEBHOOK_URL_KEY = "manifest_webhook_url"
 
 
 class StartRequest(BaseModel):
-    webhook_url: HttpUrl
+    # Optional — leave blank and bugsift auto-provisions a smee.io channel
+    # and forwards it in-process so the operator never sees a terminal.
+    webhook_url: HttpUrl | None = None
     app_name_suffix: str | None = None
 
 
@@ -50,6 +53,8 @@ class AppConfigStatus(BaseModel):
     name: str | None = None
     slug: str | None = None
     html_url: str | None = None
+    tunnel_url: str | None = None
+    tunnel_running: bool = False
 
 
 # First-run operator access model: the manifest flow is unauthenticated
@@ -66,10 +71,19 @@ async def app_status(
 ) -> AppConfigStatus:
     """Public: the landing page reads this before deciding what to show."""
     cfg = await app_config.load_app_config(session)
+    tunnel_status = smee.forwarder_status()
+    base = dict(
+        tunnel_url=tunnel_status.get("tunnel_url") or await smee.get_tunnel_url(),
+        tunnel_running=bool(tunnel_status.get("running")),
+    )
     if cfg is None:
-        return AppConfigStatus(configured=False)
+        return AppConfigStatus(configured=False, **base)
     return AppConfigStatus(
-        configured=True, name=cfg.name, slug=cfg.slug, html_url=cfg.html_url
+        configured=True,
+        name=cfg.name,
+        slug=cfg.slug,
+        html_url=cfg.html_url,
+        **base,
     )
 
 
@@ -90,13 +104,19 @@ async def start(
             ),
         )
     settings = get_settings()
+    # Auto-provision a smee channel if the caller didn't supply one, and
+    # make sure the in-process forwarder is live before we hand off to
+    # GitHub. The channel survives restarts (cached in Redis).
+    webhook_url = str(body.webhook_url) if body.webhook_url else await smee.ensure_tunnel_url()
+    await smee.start_forwarder(webhook_url)
+
     state = secrets.token_urlsafe(32)
     request.session[SESSION_STATE_KEY] = state
-    request.session[SESSION_WEBHOOK_URL_KEY] = str(body.webhook_url)
+    request.session[SESSION_WEBHOOK_URL_KEY] = webhook_url
 
     manifest = _build_manifest(
         public_url=settings.public_url,
-        webhook_url=str(body.webhook_url),
+        webhook_url=webhook_url,
         suffix=body.app_name_suffix or _default_suffix(settings.public_url),
     )
     # GitHub's manifest flow expects an HTML POST form to

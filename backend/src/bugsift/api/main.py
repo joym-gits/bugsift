@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
@@ -15,6 +19,25 @@ from bugsift.api.repos import router as repos_router
 from bugsift.api.usage import router as usage_router
 from bugsift.api.webhooks import router as webhooks_router
 from bugsift.config import get_settings
+from bugsift.github import smee
+
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """Start the in-process smee forwarder if a tunnel URL is already
+    provisioned, then hand control to the app. Shutdown stops the task
+    cleanly so tests don't leak background coroutines.
+    """
+    try:
+        await smee.start_forwarder_if_url_present()
+    except Exception:  # pragma: no cover - startup resilience
+        logger.exception("smee forwarder failed to start; webhooks will not flow until fixed")
+    try:
+        yield
+    finally:
+        await smee.stop_forwarder()
 
 
 def create_app() -> FastAPI:
@@ -25,6 +48,7 @@ def create_app() -> FastAPI:
         version=__version__,
         docs_url="/docs" if settings.env == "development" else None,
         redoc_url=None,
+        lifespan=lifespan,
     )
 
     # Session is a signed cookie holding `user_id` and OAuth state. Secret must
