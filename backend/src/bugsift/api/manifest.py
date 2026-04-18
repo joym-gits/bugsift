@@ -14,15 +14,12 @@ to run.
 
 from __future__ import annotations
 
-import json
 import logging
 import secrets
-from html import escape
-from urllib.parse import quote
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, HttpUrl
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -57,6 +54,12 @@ class AppConfigStatus(BaseModel):
     tunnel_running: bool = False
 
 
+class StartResponse(BaseModel):
+    github_url: str
+    manifest: dict
+    state: str
+
+
 # First-run operator access model: the manifest flow is unauthenticated
 # *only while no App exists yet*. In a self-hosted deployment, whoever
 # can reach the server before onboarding is the operator — there's no
@@ -87,12 +90,20 @@ async def app_status(
     )
 
 
-@router.post("/start", response_class=HTMLResponse)
+@router.post("/start", response_model=StartResponse)
 async def start(
     request: Request,
     body: StartRequest,
     session: AsyncSession = Depends(get_session),
-) -> HTMLResponse:
+) -> StartResponse:
+    """Prepare the manifest + state; let the frontend submit its own form.
+
+    The earlier version returned an HTML ``<form>`` that auto-submitted
+    from an ``about:blank`` document; that lost third-party cookie
+    behaviour in some browsers (incognito especially), which made GitHub
+    500 when it couldn't identify the authenticated user. Returning JSON
+    and letting the bugsift page build a native form side-steps the issue.
+    """
     existing = await app_config.load_app_config(session)
     if existing is not None:
         raise HTTPException(
@@ -104,9 +115,6 @@ async def start(
             ),
         )
     settings = get_settings()
-    # Auto-provision a smee channel if the caller didn't supply one, and
-    # make sure the in-process forwarder is live before we hand off to
-    # GitHub. The channel survives restarts (cached in Redis).
     webhook_url = str(body.webhook_url) if body.webhook_url else await smee.ensure_tunnel_url()
     await smee.start_forwarder(webhook_url)
 
@@ -119,24 +127,11 @@ async def start(
         webhook_url=webhook_url,
         suffix=body.app_name_suffix or _default_suffix(settings.public_url),
     )
-    # GitHub's manifest flow expects an HTML POST form to
-    # https://github.com/settings/apps/new?state=... with a single
-    # <input name="manifest"> containing the JSON manifest.
-    form_action = f"https://github.com/settings/apps/new?state={quote(state)}"
-    manifest_json = escape(json.dumps(manifest))
-    html = (
-        "<!doctype html><html><head><meta charset=utf-8>"
-        "<title>Creating GitHub App…</title>"
-        "<style>body{font-family:system-ui;padding:4rem;text-align:center;color:#333}</style>"
-        "</head><body>"
-        "<p>Redirecting you to GitHub to create the bugsift App…</p>"
-        f'<form id="f" method="post" action="{form_action}">'
-        f'<input type="hidden" name="manifest" value=\'{manifest_json}\'>'
-        "</form>"
-        "<script>document.getElementById('f').submit();</script>"
-        "</body></html>"
+    return StartResponse(
+        github_url=f"https://github.com/settings/apps/new?state={state}",
+        manifest=manifest,
+        state=state,
     )
-    return HTMLResponse(html)
 
 
 @router.get("/callback")

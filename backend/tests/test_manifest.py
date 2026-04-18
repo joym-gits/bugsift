@@ -30,9 +30,12 @@ def test_start_accepts_anonymous_when_no_app_configured(client) -> None:
         json={"webhook_url": "https://smee.io/abc123"},
     )
     assert r.status_code == 200
-    # Response is the auto-submitting HTML form.
-    assert "github.com/settings/apps/new" in r.text
-    assert "smee.io/abc123" in r.text or "smee.io%2Fabc123" in r.text
+    body = r.json()
+    # New JSON contract: frontend builds its own form from these fields.
+    assert "github.com/settings/apps/new" in body["github_url"]
+    assert body["state"]
+    assert body["manifest"]["hook_attributes"]["url"] == "https://smee.io/abc123"
+    assert "callback_urls" in body["manifest"]
 
 
 def test_start_requires_valid_webhook_url(client) -> None:

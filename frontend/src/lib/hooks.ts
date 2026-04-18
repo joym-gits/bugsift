@@ -190,11 +190,12 @@ export type AppStatus = {
   tunnel_running?: boolean;
 };
 
-export function useAppStatus(enabled: boolean) {
+export function useAppStatus(enabled: boolean, pollMs: number | false = false) {
   return useQuery<AppStatus>({
     queryKey: ["app-status"],
     queryFn: () => apiFetch<AppStatus>("/github/app/manifest/status"),
     enabled,
+    refetchInterval: pollMs,
   });
 }
 

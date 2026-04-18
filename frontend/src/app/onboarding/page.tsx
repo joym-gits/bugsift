@@ -35,9 +35,14 @@ function OnboardingInner() {
   const me = useMe();
   const signedIn = Boolean(me.data);
   const searchParams = useSearchParams();
-  // Status is public (no auth) — we need it *before* login in order to
-  // show Step 1 to the first-run operator.
-  const appStatus = useAppStatus(true);
+  // Status is public (no auth) — we need it *before* login so Step 1 can
+  // render for the first-run operator. Polling kicks in automatically
+  // while we're on Step 1 so the tab flips to Step 2 the moment the
+  // manifest callback completes.
+  const appStatus = useAppStatus(
+    true,
+    searchParams?.get("step") !== "install" && searchParams?.get("step") !== "key" ? 3000 : false,
+  );
   const keys = useKeys(signedIn);
   const repos = useRepos(signedIn);
   const appConfigured = appStatus.data?.configured ?? false;
@@ -178,14 +183,18 @@ function AppStep({
 }) {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [waiting, setWaiting] = useState(false);
 
   const onStart = async () => {
     setError(null);
     setSubmitting(true);
     try {
       // Backend auto-provisions a smee channel + starts the in-process
-      // forwarder, then returns an HTML form that auto-submits the manifest
-      // to GitHub. The operator never sees a terminal.
+      // forwarder, then returns the manifest + target URL as JSON. We
+      // build a native DOM form on THIS page (so the browser sends
+      // github.com cookies normally) and submit it in a new tab — that
+      // way, if the user isn't logged into GitHub yet, they log in in
+      // the new tab and finish there without losing bugsift state.
       const response = await fetch(`${API_BASE_URL}/github/app/manifest/start`, {
         method: "POST",
         credentials: "include",
@@ -193,20 +202,45 @@ function AppStep({
         body: JSON.stringify({}),
       });
       if (!response.ok) {
-        const body = await response.text();
-        setError(body || `request failed: ${response.status}`);
+        let detail = `request failed: ${response.status}`;
+        try {
+          const body = await response.json();
+          detail = body?.detail ?? detail;
+        } catch {
+          /* keep default */
+        }
+        setError(detail);
         setSubmitting(false);
         return;
       }
-      const html = await response.text();
-      const win = window.open("about:blank", "_self");
-      if (win) {
-        win.document.open();
-        win.document.write(html);
-        win.document.close();
-      }
+      const { github_url, manifest } = (await response.json()) as {
+        github_url: string;
+        manifest: Record<string, unknown>;
+        state: string;
+      };
+
+      const form = document.createElement("form");
+      form.action = github_url;
+      form.method = "POST";
+      form.target = "_blank";
+      form.rel = "noopener";
+      const input = document.createElement("input");
+      input.type = "hidden";
+      input.name = "manifest";
+      input.value = JSON.stringify(manifest);
+      form.appendChild(input);
+      document.body.appendChild(form);
+      form.submit();
+      form.remove();
+
+      // Leave the button in a "waiting" state; user returns here after
+      // GitHub confirms and bugsift's callback fires, which flips
+      // /status.configured to true. The dashboard/onboarding banner
+      // then auto-advances them to Step 2.
+      setWaiting(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "failed to start");
+    } finally {
       setSubmitting(false);
     }
   };
@@ -215,9 +249,24 @@ function AppStep({
     <section className="rounded-lg border bg-card p-6 shadow-sm">
       <h2 className="text-xl font-semibold">Register your GitHub App</h2>
       <p className="mt-1 text-sm text-muted-foreground">
-        One click. bugsift hands you to GitHub with a pre-filled manifest, you
-        confirm, and come back. No terminal, no &ldquo;paste this URL&rdquo;,
+        One click. bugsift hands you to GitHub with a pre-filled manifest in a
+        new tab. You confirm on GitHub, come back, and we store the
+        credentials &mdash; encrypted &mdash; in our database. No terminal,
         no .env editing.
+      </p>
+      <p className="mt-3 text-sm text-muted-foreground">
+        <strong>Before you click:</strong> make sure you&apos;re signed into{" "}
+        <a
+          href="https://github.com"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline underline-offset-4"
+        >
+          github.com
+        </a>{" "}
+        in this browser. GitHub needs to know which account is creating the
+        App &mdash; if you&apos;re not signed in, their page 500s instead of
+        asking you to log in.
       </p>
 
       {configured ? (
@@ -256,9 +305,39 @@ function AppStep({
           {error}
         </p>
       )}
+
+      {waiting && !configured && (
+        <div className="mt-5 rounded-md border border-primary/30 bg-primary/5 p-4 text-sm">
+          <div className="font-medium">Waiting on GitHub…</div>
+          <p className="mt-1 text-muted-foreground">
+            A new tab opened with GitHub&apos;s confirmation page. Click{" "}
+            <strong>&ldquo;Create GitHub App&rdquo;</strong> there, and this
+            page will update automatically.
+          </p>
+          <p className="mt-2 text-muted-foreground">
+            Saw a 500 error on GitHub? You&apos;re probably not logged in.{" "}
+            <a
+              href="https://github.com/login"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline underline-offset-4"
+            >
+              Sign in there
+            </a>{" "}
+            and click Register again.
+          </p>
+        </div>
+      )}
+
       <div className="mt-5 flex items-center gap-3">
         <Button size="lg" onClick={onStart} disabled={submitting || configured}>
-          {submitting ? "redirecting…" : configured ? "Already registered" : "Register GitHub App"}
+          {submitting
+            ? "opening tab…"
+            : configured
+              ? "Already registered"
+              : waiting
+                ? "Register again"
+                : "Register GitHub App"}
         </Button>
         {configured && (
           <Link href="/onboarding?step=install" className="text-sm underline underline-offset-4">
