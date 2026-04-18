@@ -1,0 +1,313 @@
+[
+  {
+    "repo": "pallets/flask",
+    "number": 5991,
+    "title": "Security: 13 known CVEs in examples/celery/requirements.txt",
+    "body": "## Summary\n\nThe `examples/celery/requirements.txt` file contains pinned dependency versions with **13 known security vulnerabilities** (1 HIGH, 11 MEDIUM, 1 LOW), identified via Trivy filesystem scan.\n\n## Affected File\n\n`examples/celery/requirements.txt` \u2014 pip-compiled lockfile for the Celery example application.\n\n## Vulnerabilities\n\n### HIGH (1)\n\n| Package | CVE | Installed | Fixed | Description |\n|---------|-----|-----------|-------|-------------|\n| werkzeug | [CVE-2024-34069](https://avd.aquasec.com/nvd/cve-2024-34069) | 2.3.3 | 3.0.3 | Code execution on developer's machine via debugger |\n\n### MEDIUM (11)\n\n| Package | CVE | Installed | Fixed | Description |\n|---------|-----|-----------|-------|-------------|\n| jinja2 | [CVE-2024-22195](https://avd.aquasec.com/nvd/cve-2024-22195) | 3.1.2 | 3.1.3 | HTML attribute injection via xmlattr |\n| jinja2 | [CVE-2024-34064](https://avd.aquasec.com/nvd/cve-2024-34064) | 3.1.2 | 3.1.4 | Non-attribute character acceptance in keys |\n| jinja2 | [CVE-2024-56201](https://avd.aquasec.com/nvd/cve-2024-56201) | 3.1.2 | 3.1.5 | Sandbox breakout through malicious filenames |\n| jinja2 | [CVE-2024-56326](https://avd.aquasec.com/nvd/cve-2024-56326) | 3.1.2 | 3.1.5 | Sandbox breakout through indirect reference to format method |\n| jinja2 | [CVE-2025-27516](https://avd.aquasec.com/nvd/cve-2025-27516) | 3.1.2 | 3.1.6 | Sandbox breakout through attr filter selecting format method |\n| werkzeug | [CVE-2023-46136](https://avd.aquasec.com/nvd/cve-2023-46136) | 2.3.3 | 2.3.8 | High resource consumption (DoS) |\n| werkzeug | [CVE-2024-49766](https://avd.aquasec.com/nvd/cve-2024-49766) | 2.3.3 | 3.0.6 | safe_join not safe on Windows |\n| werkzeug | [CVE-2024-49767](https://avd.aquasec.com/nvd/cve-2024-49767) | 2.3.3 | 3.0.6 | Resource exhaustion when parsing file data in forms |\n| werkzeug | [CVE-2025-66221](https://avd.aquasec.com/nvd/cve-2025-66221) | 2.3.3 | 3.1.4 | DoS via Windows device names in path segments |\n| werkzeug | [CVE-2026-21860](https://avd.aquasec.com/nvd/cve-2026-21860) | 2.3.3 | 3.1.5 | safe_join() allows Windows special device names with compound extensions |\n| werkzeug | [CVE-2026-27199](https://avd.aquasec.com/nvd/cve-2026-27199) | 2.3.3 | 3.1.6 | safe_join() allows Windows special device names |\n\n### LOW (1)\n\n| Package | CVE | Installed | Fixed | Description |\n|---------|-----|-----------|-------|-------------|\n| flask | [CVE-2026-27205](https://avd.aquasec.com/nvd/cve-2026-27205) | 2.3.2 | 3.1.3 | Information disclosure via improper caching of session data |\n\n## Previous Attempts\n\n- PR #5987 attempted to fix only CVE-2024-34069 (werkzeug) but was closed without merge (2026-04-09). This issue covers all 13 CVEs comprehensively.\n\n## Proposed Fix\n\nUpdate the pinned versions in `examples/celery/requirements.txt`:\n- `flask` 2.3.2 \u2192 3.1.3\n- `werkzeug` 2.3.3 \u2192 3.1.6\n- `jinja2` 3.1.2 \u2192 3.1.6\n- `blinker` 1.6.2 \u2192 1.9.0 (flask 3.x dependency)\n- `itsdangerous` 2.1.2 \u2192 2.2.0 (flask 3.x dependency)\n- `markupsafe` 2.1.2 \u2192 3.0.3 (compatible upgrade)\n\n## Verification\n\nTrivy rescan after fix shows **0 vulnerabilities** across all severity levels.\n\n## Scanner\n\nTool: [Trivy](https://github.com/aquasecurity/trivy) v0.57.0, DB updated 2026-04-10",
+    "labels": [],
+    "url": "https://github.com/pallets/flask/issues/5991",
+    "expected_classification": "bug",
+    "expected_duplicate_of": null
+  },
+  {
+    "repo": "pallets/flask",
+    "number": 5988,
+    "title": "Docs: doubled word \"the the\" in TESTING config description",
+    "body": "In `docs/config.rst`, the description for `TESTING` contains a doubled word:\n\n```\nExceptions are propagated rather than handled by the\nthe app's error handlers.\n```\n\nShould be:\n\n```\nExceptions are propagated rather than handled by the app's error handlers.\n```\n\n**File:** `docs/config.rst` line 83",
+    "labels": [],
+    "url": "https://github.com/pallets/flask/issues/5988",
+    "expected_classification": "docs",
+    "expected_duplicate_of": null
+  },
+  {
+    "repo": "pallets/flask",
+    "number": 5965,
+    "title": "fix: celery task result endpoint crashes on task failure",
+    "body": "## Description\n\nWhen a Celery task fails, `result.ready()` evaluates to `True` but `result.successful()` is `False`. \nCalling `result.get()` without `propagate=False` on a failed task will re-raise the task's exception, causing the Flask endpoint to crash with a 500 Internal Server Error instead of returning the task's failed status. \nAdditionally, if `result.result` is an Exception object, returning it directly in the dictionary will cause a `TypeError` during JSON serialization.\n\n\n**Severity**: `medium`\n**File**: `examples/celery/src/task_app/views.py`\n\n## Expected Behavior\n\nThe code should handle this case properly to avoid unexpected errors or degraded quality.",
+    "labels": [],
+    "url": "https://github.com/pallets/flask/issues/5965",
+    "expected_classification": "bug",
+    "expected_duplicate_of": null
+  },
+  {
+    "repo": "pallets/flask",
+    "number": 5961,
+    "title": "Flask 3.1.3 test (`test_environ_for_valid_idna_completes`) breaks after Werkzeug update from 3.1.6 to 3.1.7",
+    "body": "Flask 3.1.3 test (`test_environ_for_valid_idna_completes`) breaks after Werkzeug update from 3.1.6 to 3.1.7.\n\nTo replicate the bug you just need to run testsuite:\n```\n$ python3 -m pytest -vra\n\n<...>\n\n=================================== FAILURES ===================================\n____________________ test_environ_for_valid_idna_completes _____________________\n\n    def test_environ_for_valid_idna_completes():\n        app = flask.Flask(__name__)\n\n        @app.route(\"/\")\n        def index():\n            return \"Hello World!\"\n\n        from flask.testing import EnvironBuilder\n\n        builder = EnvironBuilder(app)\n        environ = builder.get_environ()\n\n        # these characters are all IDNA-compatible\n        environ[\"HTTP_HOST\"] = \"\u0105\u015b\u017a\u00e4\u00fc\u0436\u0160\u00df\u044f.com\"\n\n        with app.request_context(environ):\n            response = app.full_dispatch_request()\n\n>       assert response.status_code == 200\nE       assert 400 == 200\nE        +  where 400 = <Response streamed [400 BAD REQUEST]>.status_code\n\ntests/test_reqctx.py:314: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_reqctx.py::test_environ_for_valid_idna_completes - assert 4...\n```\n\nEnvironment:\n\n- Python version: 3.13.12\n- Flask version: 3.1.3\n- Werkzeug version: 3.1.7\n",
+    "labels": [],
+    "url": "https://github.com/pallets/flask/issues/5961",
+    "expected_classification": "bug",
+    "expected_duplicate_of": null
+  },
+  {
+    "repo": "pallets/flask",
+    "number": 5948,
+    "title": "docs: Missing Redis setup instructions in Celery example README",
+    "body": "## Description\n\nThe `examples/celery/README.md` does not mention that **Redis is required** \nas a message broker for Celery to work. A beginner following the instructions \nwill successfully start the Celery worker but immediately see repeated \nconnection errors like:\n```\nERROR/MainProcess] consumer: Cannot connect to redis://localhost:6379//: \nError 111 connecting to localhost:6379. Connection refused..\nTrying again in 2.00 seconds... (1/100)\n```\n\nThis is confusing because nothing in the README warns about this dependency.\n\n## Steps to Reproduce\n\n1. Follow the README instructions exactly\n2. Run `celery -A make_celery worker --loglevel INFO`\n3. Celery starts but immediately fails trying to connect to Redis\n4. Nothing in the README explains why or how to fix it\n\n## Expected Behavior\n\nThe README should mention that Redis is required and provide \nsetup instructions for it.\n\n## Proposed Fix\n\nAdd the following before the `celery` run command in `README.md`:\n```rst\nCelery requires a message broker. Install and start Redis before \nrunning the worker:\n\n$ sudo apt install redis-server   # Debian/Ubuntu\n$ sudo service redis start\n\n# Verify Redis is running:\n$ redis-cli ping\n# Expected output: PONG\n```\n\n## Environment\n\n- OS: Ubuntu / Debian (Linux)\n- Flask version: latest (main branch)\n- Celery version: 5.6.2\n\n## Additional Notes\n\nThis is a documentation-only change with no impact on code. \nIt improves the onboarding experience for beginners on \nDebian/Ubuntu systems, which are the most common Linux distributions.",
+    "labels": [],
+    "url": "https://github.com/pallets/flask/issues/5948",
+    "expected_classification": "docs",
+    "expected_duplicate_of": null
+  },
+  {
+    "repo": "pallets/flask",
+    "number": 5942,
+    "title": "flask run should support pep723",
+    "body": "Because no one wants to use:\n\nnative pkgutil-style, declarative, non-declarative, setup.py, setup.cfg, pyproject.toml, pep517, setuptools, build, pip, namespace packages,  normal packages, pkg-util namespace package\n\nYou name it because I won't.\n\nHaving `flask run` or any such primitive commands to allow running a flask application would make the entire process go from a 2 weeks pip marathon to a 10 minutes max of relaxing time where it just works magically.\n\n\n",
+    "labels": [],
+    "url": "https://github.com/pallets/flask/issues/5942",
+    "expected_classification": "feature-request",
+    "expected_duplicate_of": null
+  },
+  {
+    "repo": "pallets/flask",
+    "number": 5936,
+    "title": "Clarify recommended debug workflow in Quickstart documentation",
+    "body": "While reviewing the Quickstart documentation (https://flask.palletsprojects.com/en/stable/quickstart/#debug-mode), I noticed that debug mode is discussed but the distinction between using `app.run(debug=True)` and the recommended `flask run --debug` CLI flag is not clearly emphasized.\n\nMany external tutorials still reference `app.run(debug=True)`, and new users may not understand when to use the CLI flag versus enabling debug mode directly in application code.\n\nIt may be helpful to clarify:\n\n- That `flask run --debug` is the recommended development workflow\n- When `app.run(debug=True)` is appropriate\n- Why separating debug configuration from application code is considered best practice",
+    "labels": [],
+    "url": "https://github.com/pallets/flask/issues/5936",
+    "expected_classification": "docs",
+    "expected_duplicate_of": null
+  },
+  {
+    "repo": "pallets/flask",
+    "number": 5934,
+    "title": "[Security] Default session HMAC digest should be SHA-256, not SHA-1",
+    "body": "## Summary\n\nFlask's `SecureCookieSessionInterface` uses SHA-1 as the default HMAC digest for signing session cookies. SHA-1 has been deprecated by NIST (since 2011) and is no longer recommended for cryptographic use.\n\n## Location\n\n`src/flask/sessions.py`, line 293:\n\n```python\ndigest_method = staticmethod(_lazy_sha1)\n",
+    "labels": [],
+    "url": "https://github.com/pallets/flask/issues/5934",
+    "expected_classification": "bug",
+    "expected_duplicate_of": null
+  },
+  {
+    "repo": "pallets/flask",
+    "number": 5933,
+    "title": "Add a built-in is_safe_redirect() helper to handle browser URL normalization (backslash \u2192 forward slash)",
+    "body": "Modern browsers normalize backslashes in navigation URLs (e.g., `\\\\evil.com`) into forward slashes (`//evil.com`). This creates a discrepancy between how Flask/Werkzeug evaluates redirect targets and how user agents ultimately interpret them.\n\nA common pattern used by Flask developers to prevent protocol-relative redirects is:\n\n```python\nif not url.startswith(\"//\"):\n    return redirect(url)\n```\n\nHowever, the following payload bypasses this logic:\n\n```\n\\\\evil.com\n```\n\nFlask/Werkzeug evaluates this as a safe relative path (`startswith(\"//\") == False`), while browsers normalize it to:\n\n```\nhttps://evil.com\n```\n\nand perform an external redirect. This normalization behavior is consistent across Chrome, Firefox, and Safari.\n\nAs Flask does not provide a built-in redirect validation helper, developers routinely implement ad-hoc string checks that do not account for browser normalization rules, resulting in an ecosystem-wide class of open-redirect flaws.\n\n**Feature Request**\n\nIntroduce an official, browser-aware redirect safety utility in Flask or Werkzeug, similar to Django\u2019s `is_safe_url`, to standardize redirect validation across the framework. The helper should:\n\n1. Normalize backslashes to forward slashes before validation.\n2. Reject protocol-relative URLs (`//example.com`).\n3. Optionally enforce allowed host checks.\n4. Provide a documented, recommended pattern for safe redirects.\n\n**Rationale**\n\n- This issue is not a flaw in Flask\u2019s redirect implementation but a recurring security footgun for developers due to inconsistent handling between application logic and browser URL normalization.\n- Providing an official helper reduces the likelihood of open-redirect vulnerabilities in applications built on Flask.\n- This is framework hardening rather than a security bug report, and it aligns with the expectations set by other frameworks that offer standardized redirect-safety utilities.\n\nThis feature would give developers a reliable and recommended approach to validating redirect targets securely, reducing reliance on fragile custom logic.",
+    "labels": [],
+    "url": "https://github.com/pallets/flask/issues/5933",
+    "expected_classification": "feature-request",
+    "expected_duplicate_of": null
+  },
+  {
+    "repo": "pallets/flask",
+    "number": 5932,
+    "title": "Add configurable JSON parsing limits and preprocessing hook",
+    "body": "Description\nFlask currently parses JSON input using json.loads() without providing an application-level mechanism to enforce payload size limits or preprocess raw JSON before deserialization.\nThis feature would introduce configuration settings such as:\n\u2022\u2060  \u2060JSON_MAX_STRING_LENGTH \u2013 to reject JSON payloads exceeding a defined size before parsing.\n\u2022\u2060  \u2060JSON_PREPROCESS_RAW \u2013 to allow an optional callable to preprocess raw JSON text before json.loads() is executed.\n\nExample of the Problem This Would Resolve\nIf a client sends a very large JSON payload (for example, 15\u201320MB), Flask will attempt to parse it entirely in memory. This can lead to unnecessary memory consumption and CPU usage, especially in API-heavy environments. While infrastructure-level limits (e.g., reverse proxies) may mitigate this, application-level safeguards provide defense-in-depth and improve reliability.\nCurrently, this problem can only be addressed by subclassing JSONProvider, overriding loads(), or modifying framework internals. Providing built-in configuration support would make it easier to enforce consistent JSON parsing policies without custom framework patches.",
+    "labels": [],
+    "url": "https://github.com/pallets/flask/issues/5932",
+    "expected_classification": "feature-request",
+    "expected_duplicate_of": null
+  },
+  {
+    "repo": "expressjs/express",
+    "number": 7186,
+    "title": "res.json() throws cryptic TypeError for BigInt values with no actionable message",
+    "body": "When a route handler calls res.json() with an object containing a BigInt value, Express throws a raw, cryptic error from deep inside JSON.stringify() with no hint about which field caused it or how to fix it.\n\n**Steps to reproduce**\n\n```\n app.get('/user', (req, res) => {\n    res.json({ id: BigInt(9007199254740991), name: 'Alice' });\n  });\n\n  // Server crashes with:\n  // TypeError: Do not know how to serialize a BigInt\n  //     at JSON.stringify ()\n  //     at stringify (.../node_modules/express/lib/response.js:...)\n  //     ...\n  //\n  // No mention of which key caused it. No suggestion for a fix.\n```\n\n**Expected behaviour**\n\nA clear, actionable error message that:\n  1. Identifies that a BigInt was the cause\n  2. Points the developer to the solution (json replacer)\n\nExample of a good error:\n```\n  \"res.json() cannot serialize BigInt values by default.\n   Use app.set('json replacer') with a custom replacer function.\n   Example:\n     app.set('json replacer', (key, val) =>\n       typeof val === 'bigint' ? val.toString() : val\n     );\"\n```\n\n\n",
+    "labels": [],
+    "url": "https://github.com/expressjs/express/issues/7186",
+    "expected_classification": "bug",
+    "expected_duplicate_of": null
+  },
+  {
+    "repo": "expressjs/express",
+    "number": 7178,
+    "title": "Single item array query parameter not correctly parsed in Azure App Services in 5.2.1",
+    "body": "When we deploy our app on Azure App Services, a single query parameter is not parsed when using the `?param[]=value` notation. Express will show this as a query param with the name `param[]` and the value `value`, while locally we get the correct behaviour: `param` and value `[value]\n`\n## Environment information\n\n**Version**: 5.2.1\n\n**Platform**: Linux Azure App Services\n\n**Node.js version**: 24\n\n**Any other relevant information**: Issue only occurs when running on Azure App Services. When running locally, it works as expected\n\n**This issue started for us after upgrading to the 5.2.1 version.** We had no issues when running the 4.18.x version\n\n## What steps will reproduce the bug?\n\nAdd a debug endpoint, e.g.;\n```Typescript\nrouter.get(\"/debug/query\", (req: Request, res: Response) => {\n\tconst rawQueryString = req.originalUrl.split(\"?\")[1] ?? \"\";\n\n\treturn res.json({\n\t\tparsedQuery: req.query,\n\t\trawQuery: {\n\t\t\tqueryString: rawQueryString,\n\t\t},\n\t});\n});\n```\n\nSend a request with the query format `?param[]=value`.\n",
+    "labels": [
+      "bug"
+    ],
+    "url": "https://github.com/expressjs/express/issues/7178",
+    "expected_classification": "bug",
+    "expected_duplicate_of": null
+  },
+  {
+    "repo": "expressjs/express",
+    "number": 7143,
+    "title": "Vulnerable dependency version that is 12 years old: path-to-regexp",
+    "body": "<!-- The process for bug fixing is:\n\n- We will first assess if the behavior is different from what should occur\n- Confirm the bug is reproducible\n- Discuss how to best fix the bug\n- Work towards a fix\n-->\n\n## Environment information\n\n**Version**:\n4.22.1\n<!-- \nTo find the installed version of a package, you can check the `package.json` file in the root directory of your project. The version will be listed under `dependencies` or `devDependencies`, like this:\n\n```json\n\"dependencies\": {\n  \"express\": \"4.18.2\"\n}\n-->\n\n**Platform**:\nall platforms\n\n**Node.js version**:\n<!-- \nOutput of node -v.\n-->\n22.x (irrelevant)\n\n**Any other relevant information**:\nhttps://security.snyk.io/package/npm/path-to-regexp\nhttps://www.npmjs.com/package/path-to-regexp?activeTab=versions\n\n## What steps will reproduce the bug?\nrunning npm audit\n",
+    "labels": [
+      "4.x",
+      "question",
+      "awaiting more info"
+    ],
+    "url": "https://github.com/expressjs/express/issues/7143",
+    "expected_classification": "bug",
+    "expected_duplicate_of": null
+  },
+  {
+    "repo": "expressjs/express",
+    "number": 7069,
+    "title": "Built-in /docs endpoint similar to FastAPI for automatic API documentation",
+    "body": "## Feature Request\n\nIt would be extremely helpful if Express provided a built-in `/docs` endpoint (similar to FastAPI) that automatically generates interactive API documentation.\n\n## Motivation\n\nFrameworks like FastAPI provide automatic OpenAPI/Swagger documentation at `/docs` by default. This significantly improves:\n\n- Developer experience\n- Faster API testing\n- Quick onboarding for contributors\n- Reduced dependency on external tools like Postman for small APIs\n\nCurrently in Express, developers need to manually integrate third-party packages such as:\n- swagger-ui-express\n- swagger-jsdoc\n- Redoc\n\nWhile these solutions work well, having an optional built-in documentation middleware would make Express even more developer-friendly, especially for small projects, prototypes, and teaching environments.\n\n## Proposed Solution\n\nProvide an optional built-in middleware that:\n\n- Auto-detects registered routes\n- Generates OpenAPI schema automatically\n- Serves interactive documentation at `/docs`\n- Can be enabled with something like:\n\n```js\napp.enableDocs();",
+    "labels": [
+      "duplicate"
+    ],
+    "url": "https://github.com/expressjs/express/issues/7069",
+    "expected_classification": "feature-request",
+    "expected_duplicate_of": null
+  },
+  {
+    "repo": "expressjs/express",
+    "number": 7063,
+    "title": "Some libraries used are more than 12 months old",
+    "body": "some of these libraries are direct and some are transitively used by express and these are more than 12 months old. When we use this in our products these get highlighted as \"outdatedLib\" in blackduck for example . How does express handle libraries that does not have regular updates and still ensure they are secure. Could you please give a comment..\n\nLibs\n--\naccepts\nmime-types\nmime-db\nnegotiator\nbytes\ncontent-type\ncookie-signature\ndebug/2.6.9\ndebug/3.1.0\ndebug/4.4.0\ndebug/4.4.1\ndepd\nfresh\ninherits\non-finished\nee-first\nparseurl\nqs\nobject-inspect\nrange-parser\nhttp-errors\nmime\nstatuses\nserve-static\nsend\nencodeurl\ntype-is\nmedia-typer\n",
+    "labels": [
+      "duplicate",
+      "question"
+    ],
+    "url": "https://github.com/expressjs/express/issues/7063",
+    "expected_classification": "question",
+    "expected_duplicate_of": null
+  },
+  {
+    "repo": "expressjs/express",
+    "number": 7027,
+    "title": "Report: publish security analysis findings and recommendations",
+    "body": "Phase: Report\n\nTasks:\n- Synthesize mapping, quality, and problems into a concise report\n- Post report to main issue as a comment\n- Close all phase sub-issues and mark main issue done\n\nWill close this sub-issue when the report is published and other sub-issues closed.",
+    "labels": [],
+    "url": "https://github.com/expressjs/express/issues/7027",
+    "expected_classification": "spam",
+    "expected_duplicate_of": null
+  },
+  {
+    "repo": "expressjs/express",
+    "number": 7026,
+    "title": "Problems: identify security issues and risky patterns",
+    "body": "Phase: Problems\n\nTasks:\n- From mapping and quality findings, list concrete security problems (misconfigurations, risky APIs, missing docs)\n- Prioritize by severity and exploitability\n- Create actionable recommendations for maintainers\n\nWill close this sub-issue when problems are documented.",
+    "labels": [],
+    "url": "https://github.com/expressjs/express/issues/7026",
+    "expected_classification": "spam",
+    "expected_duplicate_of": null
+  },
+  {
+    "repo": "expressjs/express",
+    "number": 7025,
+    "title": "Quality: review security-related files and code",
+    "body": "Phase: Quality\n\nTasks:\n- Locate SECURITY.md or similar docs\n- Review core source files for security patterns (req handling, parameter parsing, header handling)\n- Search codebase for uses of 'eval', 'new Function', 'child_process', 'crypto' misuse, and unsafe defaults\n- Document findings and examples\n\nWill close this sub-issue when analysis is complete.",
+    "labels": [],
+    "url": "https://github.com/expressjs/express/issues/7025",
+    "expected_classification": "spam",
+    "expected_duplicate_of": null
+  },
+  {
+    "repo": "expressjs/express",
+    "number": 7024,
+    "title": "Mapping: repository tree, branches, commits",
+    "body": "Phase: Mapping\n\nTasks:\n- Retrieve the full repository tree\n- List branches\n- List recent commits (perPage: 50)\n- Attach findings to the main issue as comments\n\nWill close this sub-issue when mapping is complete.",
+    "labels": [],
+    "url": "https://github.com/expressjs/express/issues/7024",
+    "expected_classification": "spam",
+    "expected_duplicate_of": null
+  },
+  {
+    "repo": "expressjs/express",
+    "number": 7023,
+    "title": "\ud83d\udd0d Security Practices Analysis: expressjs/express",
+    "body": "Initiating an automated security practices analysis for the expressjs/express repository.\n\nPlanned phases:\n1. Mapping: repository tree, branches, commit history\n2. Quality: review security-related files (e.g., SECURITY.md, docs, core code), search for security patterns\n3. Problems: identify potential security issues and risky patterns\n4. Report: summarize findings and recommendations\n\nSub-issues will be created for each phase and closed as they complete.",
+    "labels": [],
+    "url": "https://github.com/expressjs/express/issues/7023",
+    "expected_classification": "spam",
+    "expected_duplicate_of": null
+  },
+  {
+    "repo": "psf/requests",
+    "number": 7359,
+    "title": "[Docs] Sidebar is hidden in mobile layout",
+    "body": "## Problem Description\n\nTheoretically, for documentation using the [alabaster](https://github.com/sphinx-doc/alabaster) theme, the sidebar content should appear at either the **very top** or the **very bottom** in a mobile layout. For example:\n\n- https://alabaster.readthedocs.io/\n- https://docs.kernel.org/\n- https://www.writethedocs.org/\n\nHowever, I noticed that the current Requests documentation fails to display sidebar content in its mobile layout.\n\nBased on a preliminary investigation, this issue seems to be caused by modifications to `sphinxsidebar` within the current `custom.css`:\n\nhttps://github.com/psf/requests/blob/4b0b1a3e9f2fc21b9dcd8b906f2ff02645aa697e/docs/_static/custom.css#L9-L13\n\nThe simplest fix is to delete the following line:\n\n```\n  div.sphinxsidebar {display: none;}\n```\n",
+    "labels": [],
+    "url": "https://github.com/psf/requests/issues/7359",
+    "expected_classification": "docs",
+    "expected_duplicate_of": null
+  },
+  {
+    "repo": "psf/requests",
+    "number": 7353,
+    "title": "[Docs] No clickable button in other pages can return back to the Home page",
+    "body": "## Problem Description\n\nWhen visiting the [Quickstart](https://requests.readthedocs.io/en/latest/user/quickstart/) page of the Requests documentation, there is currently no clickable button to return to the [Home](https://requests.readthedocs.io/en/latest/) page. This could be resolved if other pages (including Quickstart) featured a logo at the top of the left sidebar that links back to the home page, consistent with the Home page itself.\n\nThe cause of this behavior seems to be as follows:\n\nFirst, in the `html_sidebars` configuration within `conf.py`, the top sidebar template is set to `sidebarintro.html` only for the `index` page. For all other pages, the top template is set to `sidebarlogo.html`:\n\nhttps://github.com/psf/requests/blob/ef439eb779c1eba7cbdeeeb302b11e1e061b4b7d/docs/conf.py#L174-L184\n\nCurrently, the hyperlinked logo is only implemented in `sidebarintro.html`:\n\nhttps://github.com/psf/requests/blob/ef439eb779c1eba7cbdeeeb302b11e1e061b4b7d/docs/_templates/sidebarintro.html#L1-L5\n\n<img width=\"600\" alt=\"Image\" src=\"https://github.com/user-attachments/assets/6704c48a-dd61-45b0-9c27-7218079f695f\" />\n",
+    "labels": [],
+    "url": "https://github.com/psf/requests/issues/7353",
+    "expected_classification": "docs",
+    "expected_duplicate_of": null
+  },
+  {
+    "repo": "psf/requests",
+    "number": 7352,
+    "title": "[Docs] Content in left sidebar cannot be extracted by gettext builder",
+    "body": "## Problem Description\n\nThe current content in the left sidebar of the Requests documentation:\n\n<img width=\"600\" alt=\"Image\" src=\"https://github.com/user-attachments/assets/bd317cbb-ca9b-4b1d-9918-67ffe453baf9\" />\n\nis generated from `sidebarlogo.html` or `sidebarintro.html`:\n\nhttps://github.com/psf/requests/blob/ef439eb779c1eba7cbdeeeb302b11e1e061b4b7d/docs/_templates/sidebarintro.html#L12-L34\n\nhttps://github.com/psf/requests/blob/ef439eb779c1eba7cbdeeeb302b11e1e061b4b7d/docs/_templates/sidebarlogo.html#L6-L29\n\nWhile the `sphinx-build -b gettext` command can extract translatable strings from `.rst` or `.md` files, strings within Jinja templates cannot be extracted unless it is wrapped in `{{ _('XXX') }}` or `{% trans %}XXX{% endtrans %}`.",
+    "labels": [],
+    "url": "https://github.com/psf/requests/issues/7352",
+    "expected_classification": "docs",
+    "expected_duplicate_of": null
+  },
+  {
+    "repo": "psf/requests",
+    "number": 7335,
+    "title": "`check_header_validity` does not reject null bytes and ASCII control characters in header names and values",
+    "body": "\n**Summary:**\n`check_header_validity` in `requests/utils.py` silently accepts null bytes (`\\x00`) and other ASCII control characters (`\\x01`\u2013`\\x1f`, `\\x7f`) in both header names and values. RFC 7230 Section 3.2.6 forbids these characters in header fields. Only `\\r` and `\\n` are currently caught.\n\n\n**Expected Result:**\n`check_header_validity` should raise `InvalidHeader` for any header name or value containing null bytes or ASCII control characters, consistent with how `\\r` and `\\n` are already handled.\n\n\n**Actual Result:**\n```python\nfrom requests.utils import check_header_validity\ncheck_header_validity(('X-Test', 'val\\x00ue'))   # no error raised\ncheck_header_validity(('X-Test', 'val\\x01ue'))   # no error raised\ncheck_header_validity(('X-Test\\x00', 'value'))   # no error raised\n```\n\n\n**Reproduction Steps:**\n```python\nfrom requests.utils import check_header_validity\nfrom requests.exceptions import InvalidHeader\n\n# All of these should raise InvalidHeader but do not:\ncheck_header_validity(('X-Test', 'val\\x00ue'))\ncheck_header_validity(('X-Test', '\\x01value'))\ncheck_header_validity(('X-Test', 'value\\x7f'))\ncheck_header_validity(('X-Test\\x00', 'value'))\n\n# These correctly raise InvalidHeader:\n# check_header_validity(('X-Test', 'val\\nue'))   # blocked\n# check_header_validity(('X-Test', 'val\\rue'))   # blocked\n```\n\n\n**System Information:**\n```bash\n$ python -m requests.help\n```\n\n",
+    "labels": [],
+    "url": "https://github.com/psf/requests/issues/7335",
+    "expected_classification": "bug",
+    "expected_duplicate_of": null
+  },
+  {
+    "repo": "psf/requests",
+    "number": 7284,
+    "title": "Clarify problematic chardet dependency warning",
+    "body": "## How to reproduce\n\nInstall requests and chardet in a clean environment:\n\n```bash\nmkdir test && cd test && uv init\nuv add requests chardet\nuv run python -c \"import requests\"\n```\n\nAt the time of writing (requests=2.32.5, chardet=7.2.0), this gives a warning which is hard to understand, and is not actionable:\n\n> RequestsDependencyWarning: urllib3 (2.6.3) or chardet (7.2.0)/charset_normalizer (3.4.6) doesn't match a supported version!\n\n\n## Explanation\n\nI spent around 15 minutes trying to get rid of this warning, thinking that maybe my network requests would somehow be broken. I tried to install different versions of urllib3, chardet and charset-normalizer. After reading issues and docs, I found the full explanation to be: requests uses `chardet` only if it's installed (optional dependency). Otherwise it uses `charset-normalizer`. I think this behavior is questionable - consider that I didn't even install chardet myself, one of my other dependencies had chardet as its dependency. Why would that alter the behavior of requests?\n\nFurthermore, I had to go into requests code to understand what chardet version was actually supported, which is not a very good developer experience.\n\n## Suggestion\n\nIf existing behavior is kept, I suggest to at least reword the warning, e.g.:\n> The requests library uses chardet as an optional dependency. You have chardet==7.2.0, but requests supports chardet<6. Please install chardet<6 to silence this warning.\n\n",
+    "labels": [],
+    "url": "https://github.com/psf/requests/issues/7284",
+    "expected_classification": "docs",
+    "expected_duplicate_of": null
+  },
+  {
+    "repo": "psf/requests",
+    "number": 7276,
+    "title": "CVE-2026-21441 pypi:urllib3/2.5.0 to urllib3 2.6.3",
+    "body": "<!-- Summary. -->\n **pypi:urllib3/2.5.0** is vulnerable to **CVE-2026-21441**\nhttps://nvd.nist.gov/vuln/detail/CVE-2026-21441\n\n## Expected Result\n\nWhile scanning psf-requests2.32.4\nWe see reference of urllib32.5.0 which needs to be upgraded to  urllib3 2.6.3\n\nPlease help resolve this issue\n",
+    "labels": [],
+    "url": "https://github.com/psf/requests/issues/7276",
+    "expected_classification": "bug",
+    "expected_duplicate_of": null
+  },
+  {
+    "repo": "psf/requests",
+    "number": 7274,
+    "title": "check_compatibility() naively expects only released versions of chardet and charset_normalizer",
+    "body": "Having chardet 6.0.0dev0 installed in a virtual environment results in the compatibly check failing due to ValueError because 0dev0 is not a valid integer.\n\n## Expected Result\n\nThe compatibly check passed.\n\n## Actual Result\n\n```\n/tmp/tmp.y15VRk8O9t/lib/python3.12/site-packages/requests/__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (6.0.0dev0)/charset_normalizer (3.4.6) doesn't match a supported version!\n  warnings.warn(\n```\n\n## Reproduction Steps\n\nStarting with an empty virtualenv:\n```\n(tmp.y15VRk8O9t) steven@wrecked:~% pip install chardet==6.0.0 requests\nCollecting chardet==6.0.0\n  Using cached chardet-6.0.0-py3-none-any.whl.metadata (3.3 kB)\nCollecting requests\n  Using cached requests-2.32.5-py3-none-any.whl.metadata (4.9 kB)\nCollecting charset_normalizer<4,>=2 (from requests)\n  Using cached charset_normalizer-3.4.6-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (40 kB)\nCollecting idna<4,>=2.5 (from requests)\n  Using cached idna-3.11-py3-none-any.whl.metadata (8.4 kB)\nCollecting urllib3<3,>=1.21.1 (from requests)\n  Using cached urllib3-2.6.3-py3-none-any.whl.metadata (6.9 kB)\nCollecting certifi>=2017.4.17 (from requests)\n  Using cached certifi-2026.2.25-py3-none-any.whl.metadata (2.5 kB)\nUsing cached chardet-6.0.0-py3-none-any.whl (627 kB)\nUsing cached requests-2.32.5-py3-none-any.whl (64 kB)\nUsing cached certifi-2026.2.25-py3-none-any.whl (153 kB)\nUsing cached charset_normalizer-3.4.6-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (207 kB)\nUsing cached idna-3.11-py3-none-any.whl (71 kB)\nUsing cached urllib3-2.6.3-py3-none-any.whl (131 kB)\nInstalling collected packages: urllib3, idna, charset_normalizer, chardet, certifi, requests\nSuccessfully installed certifi-2026.2.25 chardet-6.0.0 charset_normalizer-3.4.6 idna-3.11 requests-2.32.5 urllib3-2.6.3\n(tmp.y15VRk8O9t) steven@wrecked:~% python\nPython 3.12.3 (main, Mar  3 2026, 12:15:18) [GCC 13.3.0] on linux\nType \"help\", \"copyright\", \"credits\" or \"license\" for more information.\n>>> import requests\n/tmp/tmp.y15VRk8O9t/lib/python3.12/site-packages/requests/__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (6.0.0dev0)/charset_normalizer (3.4.6) doesn't match a supported version!\n  warnings.warn(\n>>> \n```\n\n## System Information\n\n    $ python -m requests.help\n\n```json\n{\n  \"chardet\": {\n    \"version\": \"6.0.0dev0\"\n  },\n  \"charset_normalizer\": {\n    \"version\": \"3.4.6\"\n  },\n  \"cryptography\": {\n    \"version\": \"\"\n  },\n  \"idna\": {\n    \"version\": \"3.11\"\n  },\n  \"implementation\": {\n    \"name\": \"CPython\",\n    \"version\": \"3.12.3\"\n  },\n  \"platform\": {\n    \"release\": \"6.8.0-90-generic\",\n    \"system\": \"Linux\"\n  },\n  \"pyOpenSSL\": {\n    \"openssl_version\": \"\",\n    \"version\": null\n  },\n  \"requests\": {\n    \"version\": \"2.32.5\"\n  },\n  \"system_ssl\": {\n    \"version\": \"300000d0\"\n  },\n  \"urllib3\": {\n    \"version\": \"2.6.3\"\n  },\n  \"using_charset_normalizer\": false,\n  \"using_pyopenssl\": false\n}\n```\n\n<!-- This command is only available on Requests v2.16.4 and greater. Otherwise,\nplease provide some basic information about your system (Python version,\noperating system, &c). -->\n",
+    "labels": [],
+    "url": "https://github.com/psf/requests/issues/7274",
+    "expected_classification": "bug",
+    "expected_duplicate_of": null
+  },
+  {
+    "repo": "psf/requests",
+    "number": 7265,
+    "title": "use milestones for better release management",
+    "body": "I noticed that the milestones here need some cleanup, some seem \"completed\", but are not closed (2.32.0, Bankruptcy(?)).\n\nAlso, a milestone for next patch release (2.32.6) is missing and that would be especially interesting considering that quite a few people are waiting for it due to the chardet warning issue (#7219).\n\nIf it would be obvious what is still to do, it would be easier to help.",
+    "labels": [],
+    "url": "https://github.com/psf/requests/issues/7265",
+    "expected_classification": "feature-request",
+    "expected_duplicate_of": null
+  },
+  {
+    "repo": "psf/requests",
+    "number": 7248,
+    "title": "Follow redirects - timeout waiting for connection to close",
+    "body": "<!-- Summary. -->\nWhen requests sees a redirect header, it waits until the connection has closed before following it. This can cause timeout errors.\n\n## Expected Result\n\nThe redirect should be followed immediately.\n<!-- What you expected. -->\n\n## Actual Result\nRequests waits for the body before following, which may cause it to timeout.\n<!-- What happened instead. -->\n\n## Reproduction Steps\nConsider this server:\n```php\n<?php\nheader( \"Location: https://example.com/\" );\n//   Long operation.\nsleep(10);\ndie();\n```\n\nThat immediately sends:\n\n```\n< HTTP/2 302 \n< location: https://example.com/\n```\n\nBut then waits before closing the connection.\n\nA simple Python request:\n\n```python\nimport requests\nrequests.get(\"https://example.com/test.php\", stream=True, allow_redirects=True)\n```\n\nWaits for 10 seconds before following the redirect.  This happens if stream is False, allow_redirects is False etc.\n\nRunning `curl -L https://example.com/test.php` ignores the body and starts following immediately:\n\n```\n< HTTP/2 302 \n< location: https://example.com/\n* Ignoring the response-body\n* Issue another request to this URL: 'https://example.com/'\n```\n\n## System Information\n\n    $ python -m requests.help\n\n```json\n{\n  \"chardet\": {\n    \"version\": \"3.0.4\"\n  },\n  \"charset_normalizer\": {\n    \"version\": \"2.0.12\"\n  },\n  \"cryptography\": {\n    \"version\": \"3.2.1\"\n  },\n  \"idna\": {\n    \"version\": \"\"\n  },\n  \"implementation\": {\n    \"name\": \"CPython\",\n    \"version\": \"3.6.8\"\n  },\n  \"platform\": {\n    \"release\": \"4.18.0-553.54.1.lve.el8.x86_64\",\n    \"system\": \"Linux\"\n  },\n  \"pyOpenSSL\": {\n    \"openssl_version\": \"101010bf\",\n    \"version\": \"19.0.0\"\n  },\n  \"requests\": {\n    \"version\": \"2.27.1\"\n  },\n  \"system_ssl\": {\n    \"version\": \"101010bf\"\n  },\n  \"urllib3\": {\n    \"version\": \"1.24.2\"\n  },\n  \"using_charset_normalizer\": false,\n  \"using_pyopenssl\": true\n}\n```\n\n<!-- This command is only available on Requests v2.16.4 and greater. Otherwise,\nplease provide some basic information about your system (Python version,\noperating system, &c). -->\n\n## Additional\n\nI am aware that this is a stupid problem and my server should be terminating the connection quickly!",
+    "labels": [],
+    "url": "https://github.com/psf/requests/issues/7248",
+    "expected_classification": "bug",
+    "expected_duplicate_of": null
+  },
+  {
+    "repo": "psf/requests",
+    "number": 7247,
+    "title": "New chardet version",
+    "body": "I apologise in advance for what may be a complete non-issue. I do not have the skills or the time to comb through the chardet codebase for potential backdoors.\n\nThe chardet project has recently released a new version(7) that was \"rewritten from the ground up\". Although most of the buzz around this is about the license changing from LGPL to MIT, I am concerned that a trusted component of practically every python internet-connected application has been swapped out for a completely new codebase. And it seems requests has accepted this by bumping the chardet version requirement to < 8.0.\n\nIf someone wanted to compromise every python app in the world, backdooring chardet would seem to be a great solution, given it processes every piece of user data. Making an incremental change to do this would risk easy discovery, so claiming a complete rewrite makes verification a massively harder (and therefore more unlikely) job.\n\nI really hope someone smarter than me can explain why this could not happen. Otherwise it would seem prudent to move the chardet version requirement back to < 7.0 until chardet has been reliably vetted.",
+    "labels": [],
+    "url": "https://github.com/psf/requests/issues/7247",
+    "expected_classification": "bug",
+    "expected_duplicate_of": null
+  }
+]

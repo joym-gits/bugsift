@@ -64,6 +64,12 @@ export type Card = {
   issue_number: number;
   status: string;
   classification: string | null;
+  confidence?: number | null;
+  rationale?: string | null;
+  draft_comment?: string | null;
+  proposed_action?: string | null;
+  proposed_labels?: string[] | null;
+  final_comment?: string | null;
   created_at: string;
 };
 
@@ -108,5 +114,35 @@ export function useTestKey() {
         method: "POST",
         body: JSON.stringify({ provider }),
       }),
+  });
+}
+
+export function useApproveCard() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) =>
+      apiFetch<Card>(`/cards/${id}/approve`, { method: "POST" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["cards"] }),
+  });
+}
+
+export function useSkipCard() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) =>
+      apiFetch<Card>(`/cards/${id}/skip`, { method: "POST" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["cards"] }),
+  });
+}
+
+export function useEditCard() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: number; draft_comment: string }) =>
+      apiFetch<Card>(`/cards/${args.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ draft_comment: args.draft_comment }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["cards"] }),
   });
 }

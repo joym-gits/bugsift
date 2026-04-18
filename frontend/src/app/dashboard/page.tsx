@@ -3,8 +3,9 @@
 import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
+import { TriageCard } from "@/components/TriageCard";
 import { API_BASE_URL } from "@/lib/api";
-import { type Card, useCards, useLogout, useMe, useRepos } from "@/lib/hooks";
+import { useCards, useLogout, useMe, useRepos } from "@/lib/hooks";
 
 export default function DashboardPage() {
   const me = useMe();
@@ -81,9 +82,11 @@ export default function DashboardPage() {
             {cards.isLoading ? (
               <p className="mt-3 text-sm text-muted-foreground">loading…</p>
             ) : cards.data && cards.data.length > 0 ? (
-              <ul className="mt-4 divide-y">
+              <ul className="mt-4 space-y-3">
                 {cards.data.map((c) => (
-                  <CardRow key={c.id} card={c} />
+                  <li key={c.id}>
+                    <TriageCard card={c} />
+                  </li>
                 ))}
               </ul>
             ) : (
@@ -95,24 +98,6 @@ export default function DashboardPage() {
         </div>
       )}
     </main>
-  );
-}
-
-function CardRow({ card }: { card: Card }) {
-  return (
-    <li className="flex items-center justify-between gap-4 py-3 text-sm">
-      <div className="min-w-0">
-        <div className="truncate font-medium">
-          {card.repo_full_name} <span className="text-muted-foreground">#{card.issue_number}</span>
-        </div>
-        <div className="text-xs text-muted-foreground">
-          {card.classification ?? "pending"} · {card.status}
-        </div>
-      </div>
-      <time className="shrink-0 text-xs text-muted-foreground">
-        {new Date(card.created_at).toLocaleString()}
-      </time>
-    </li>
   );
 }
 
