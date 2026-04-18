@@ -12,6 +12,7 @@ from sqlalchemy.orm import aliased
 from bugsift.api.deps import get_current_user, get_session
 from bugsift.db.models import Installation, Repo, TriageCard, User
 from bugsift.github.client import GithubClient
+from bugsift.workers import enqueue as enqueue_jobs
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/cards", tags=["cards"])
@@ -122,6 +123,34 @@ async def edit_draft(
     await session.commit()
     await session.refresh(card)
     return _card_response(card, repo.full_name, repo.default_branch)
+
+
+@router.post("/{card_id}/rerun", status_code=202)
+async def rerun_card(
+    card_id: int,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> dict[str, str]:
+    """Re-enqueue triage for a still-pending card using its stored webhook
+    payload. Useful after the user adds/fixes an LLM key — cards stuck at
+    "No LLM key configured" become live again without a new GitHub event.
+    """
+    card, _, _ = await _get_owned_card(session, user, card_id)
+    if card.status != "pending":
+        raise HTTPException(status_code=409, detail=f"card is already {card.status}")
+    payload = card.raw_payload_json
+    if not payload:
+        raise HTTPException(
+            status_code=400,
+            detail="card has no stored webhook payload; cannot rerun",
+        )
+    # Drop the old row — the worker will create a fresh one from the payload.
+    # (uq_repo_issue would block the insert otherwise.)
+    await session.delete(card)
+    await session.commit()
+    enqueue_jobs.enqueue_triage(payload)
+    logger.info("rerun queued for card_id=%s by user_id=%s", card_id, user.id)
+    return {"status": "queued"}
 
 
 @router.post("/{card_id}/skip", response_model=CardResponse)

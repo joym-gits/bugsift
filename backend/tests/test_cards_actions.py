@@ -109,6 +109,55 @@ async def test_cannot_approve_already_posted_card(client, pending_card, session)
     assert r.status_code == 409
 
 
+def test_rerun_requires_pending(client, pending_card, session, monkeypatch) -> None:
+    card, *_ = pending_card
+    # Mock out the Redis-hitting enqueue so the route is unit-test clean.
+    from bugsift.api import cards as cards_route
+
+    captured: list[dict] = []
+    monkeypatch.setattr(
+        cards_route.enqueue_jobs,
+        "enqueue_triage",
+        lambda payload: captured.append(payload),
+    )
+
+    # Seed raw_payload_json so the endpoint has something to re-enqueue.
+    import asyncio
+
+    async def _seed() -> None:
+        card.raw_payload_json = {
+            "action": "opened",
+            "issue": {"number": 7, "title": "boom", "body": "trace"},
+            "repository": {"id": 67890, "full_name": "demo/widget"},
+            "installation": {"id": 12345},
+        }
+        await session.commit()
+
+    asyncio.get_event_loop().run_until_complete(_seed())
+
+    r = client.post(f"/cards/{card.id}/rerun")
+    assert r.status_code == 202
+    assert r.json()["status"] == "queued"
+    assert len(captured) == 1
+    assert captured[0]["issue"]["number"] == 7
+
+
+def test_rerun_without_payload_returns_400(client, pending_card) -> None:
+    card, *_ = pending_card
+    # Default pending_card fixture has no raw_payload_json.
+    r = client.post(f"/cards/{card.id}/rerun")
+    assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_rerun_rejects_non_pending(client, pending_card, session) -> None:
+    card, *_ = pending_card
+    card.status = "posted"
+    await session.commit()
+    r = client.post(f"/cards/{card.id}/rerun")
+    assert r.status_code == 409
+
+
 @pytest.mark.asyncio
 async def test_foreign_card_returns_404(client, logged_in, session) -> None:
     stranger = User(github_id=999, github_login="other", email=None)

@@ -1,13 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { Inbox, GitBranch, Rocket, ArrowRight } from "lucide-react";
+import { Inbox, GitBranch, Rocket, ArrowRight, RefreshCw } from "lucide-react";
 
 import { AppShell, EmptyState, PageHeader, Skeleton } from "@/components/AppShell";
 import { TriageCard } from "@/components/TriageCard";
 import { Button } from "@/components/ui/button";
 import { API_BASE_URL } from "@/lib/api";
-import { type Repo, useAppStatus, useCards, useMe, useRepos } from "@/lib/hooks";
+import {
+  type Repo,
+  useAppStatus,
+  useCards,
+  useMe,
+  useRepos,
+  useRerunCard,
+} from "@/lib/hooks";
 
 export default function DashboardPage() {
   const me = useMe();
@@ -33,6 +40,13 @@ export default function DashboardPage() {
 
           {appStatus.data && !appStatus.data.configured && (
             <OnboardingBanner />
+          )}
+
+          {cards.data && cards.data.some((c) => !c.classification) && (
+            <StuckCardsBanner
+              count={cards.data.filter((c) => !c.classification).length}
+              ids={cards.data.filter((c) => !c.classification).map((c) => c.id)}
+            />
           )}
 
           <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
@@ -107,6 +121,36 @@ function RepoList({ loading, repos }: { loading: boolean; repos: Repo[] }) {
           .
         </p>
       )}
+    </div>
+  );
+}
+
+function StuckCardsBanner({ count, ids }: { count: number; ids: number[] }) {
+  const rerun = useRerunCard();
+  return (
+    <div className="mb-6 flex items-center gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-4">
+      <RefreshCw className="h-5 w-5 shrink-0 text-amber-700" />
+      <div className="flex-1 text-sm">
+        <div className="font-medium text-amber-900">
+          {count} card{count === 1 ? "" : "s"} never got classified
+        </div>
+        <div className="text-amber-800/80">
+          Usually means no LLM key was configured when the issue arrived. Now
+          that your key is set, you can retry all of them at once.
+        </div>
+      </div>
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={async () => {
+          for (const id of ids) {
+            await rerun.mutateAsync(id);
+          }
+        }}
+        disabled={rerun.isPending}
+      >
+        {rerun.isPending ? "re-running…" : `Retry ${count}`}
+      </Button>
     </div>
   );
 }

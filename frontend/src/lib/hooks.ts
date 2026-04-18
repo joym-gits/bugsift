@@ -225,3 +225,12 @@ export function useEditCard() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["cards"] }),
   });
 }
+
+export function useRerunCard() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) =>
+      apiFetch<{ status: string }>(`/cards/${id}/rerun`, { method: "POST" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["cards"] }),
+  });
+}

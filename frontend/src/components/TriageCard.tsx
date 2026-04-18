@@ -7,6 +7,7 @@ import {
   type Card,
   useApproveCard,
   useEditCard,
+  useRerunCard,
   useSkipCard,
 } from "@/lib/hooks";
 
@@ -14,10 +15,14 @@ export function TriageCard({ card }: { card: Card }) {
   const approve = useApproveCard();
   const skip = useSkipCard();
   const edit = useEditCard();
+  const rerun = useRerunCard();
   const [draft, setDraft] = useState(card.draft_comment ?? "");
   const [isEditing, setIsEditing] = useState(false);
 
   const isPending = card.status === "pending";
+  // Card never got classified (e.g. no LLM key at ingest time) — show
+  // Retry as the primary action instead of Approve.
+  const isStuck = isPending && !card.classification;
 
   return (
     <article className="rounded-md border bg-card p-4 shadow-sm">
@@ -154,21 +159,33 @@ export function TriageCard({ card }: { card: Card }) {
         <div className="mt-4 flex flex-wrap gap-2">
           {!isEditing ? (
             <>
-              <Button
-                size="sm"
-                onClick={() => approve.mutate(card.id)}
-                disabled={approve.isPending || !card.draft_comment}
-              >
-                {approve.isPending ? "posting…" : "Approve"}
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setIsEditing(true)}
-                disabled={!card.draft_comment}
-              >
-                Edit
-              </Button>
+              {isStuck ? (
+                <Button
+                  size="sm"
+                  onClick={() => rerun.mutate(card.id)}
+                  disabled={rerun.isPending}
+                >
+                  {rerun.isPending ? "re-running…" : "Retry triage"}
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  onClick={() => approve.mutate(card.id)}
+                  disabled={approve.isPending || !card.draft_comment}
+                >
+                  {approve.isPending ? "posting…" : "Approve"}
+                </Button>
+              )}
+              {!isStuck && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setIsEditing(true)}
+                  disabled={!card.draft_comment}
+                >
+                  Edit
+                </Button>
+              )}
               <Button
                 size="sm"
                 variant="outline"

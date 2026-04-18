@@ -5,8 +5,6 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
-from redis import Redis
-from rq import Queue
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,8 +14,7 @@ from bugsift.db.models import Installation, Repo, RepoConfig
 from bugsift.github import config as app_config
 from bugsift.github.rate_limit import allow_installation_event
 from bugsift.github.webhooks import verify_signature
-from bugsift.workers import indexing as indexing_jobs
-from bugsift.workers import triage as triage_jobs
+from bugsift.workers import enqueue as enqueue_jobs
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
@@ -39,42 +36,12 @@ DEFAULT_LABEL_MAP = {
 DEFAULT_REPRO_LANGUAGES = {"languages": ["python", "node"]}
 
 
-def _enqueue_triage(payload: dict[str, Any]) -> None:
-    settings = get_settings()
-    connection = Redis.from_url(settings.redis_url)
-    queue = Queue("triage", connection=connection)
-    queue.enqueue(triage_jobs.process_issue_opened, payload)
-
-
-def _enqueue_index_repo(repo_id: int) -> None:
-    settings = get_settings()
-    connection = Redis.from_url(settings.redis_url)
-    queue = Queue("indexing", connection=connection)
-    queue.enqueue(indexing_jobs.index_repo, repo_id)
-
-
-def _enqueue_index_repo_delta(
-    repo_id: int, *, added: list[str], modified: list[str], removed: list[str]
-) -> None:
-    settings = get_settings()
-    connection = Redis.from_url(settings.redis_url)
-    queue = Queue("indexing", connection=connection)
-    queue.enqueue(
-        indexing_jobs.index_repo_delta,
-        repo_id,
-        added=added,
-        modified=modified,
-        removed=removed,
-    )
-
-
-def _enqueue_embed_issue(
-    repo_id: int, issue_number: int, title: str, body: str
-) -> None:
-    settings = get_settings()
-    connection = Redis.from_url(settings.redis_url)
-    queue = Queue("indexing", connection=connection)
-    queue.enqueue(indexing_jobs.embed_issue, repo_id, issue_number, title, body)
+# Thin aliases so the webhook tests can monkey-patch a single symbol and
+# the routes stay readable.
+_enqueue_triage = enqueue_jobs.enqueue_triage
+_enqueue_index_repo = enqueue_jobs.enqueue_index_repo
+_enqueue_index_repo_delta = enqueue_jobs.enqueue_index_repo_delta
+_enqueue_embed_issue = enqueue_jobs.enqueue_embed_issue
 
 
 @router.post("/github", status_code=status.HTTP_202_ACCEPTED)
