@@ -56,12 +56,22 @@ def test_parse_sse_event_data_drops_keepalive() -> None:
 
 
 @respx.mock
-async def test_forward_event_preserves_body_bytes_and_headers() -> None:
-    """GitHub signs the exact body bytes. Our serialisation must match,
-    and host/infrastructure headers must be dropped so the downstream
-    server recomputes them.
+async def test_forward_event_re_signs_with_stored_webhook_secret(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Smee gives us a parsed body, not the raw bytes GitHub signed. The
+    forwarder re-signs with our stored webhook secret so the receiver's
+    HMAC check passes; this test pins that contract.
     """
-    captured = {}
+    import hashlib
+    import hmac as hmac_mod
+
+    async def _fake_secret() -> str:
+        return "my-wh-secret"
+
+    monkeypatch.setattr(smee, "_load_webhook_secret", _fake_secret)
+
+    captured: dict = {}
 
     def handler(request: httpx.Request) -> Response:
         captured["url"] = str(request.url)
@@ -74,7 +84,7 @@ async def test_forward_event_preserves_body_bytes_and_headers() -> None:
     event = {
         "headers": {
             "X-GitHub-Event": "issues",
-            "X-Hub-Signature-256": "sha256=abc",
+            "X-Hub-Signature-256": "sha256=stale-upstream-sig",  # must be overwritten
             "Host": "smee.io",  # must be stripped
             "Content-Length": "999",  # must be stripped
         },
@@ -83,18 +93,51 @@ async def test_forward_event_preserves_body_bytes_and_headers() -> None:
     async with httpx.AsyncClient() as client:
         await smee.forward_event(event, "http://backend/webhook", client=client)
 
-    assert captured["url"] == "http://backend/webhook"
-    assert captured["headers"]["x-github-event"] == "issues"
-    assert captured["headers"]["x-hub-signature-256"] == "sha256=abc"
-    assert "host" not in {k.lower() for k in captured["headers"].keys() if k != "host"} or captured["headers"].get("host") != "smee.io"
-    # Exact bytes match what our forwarder serialised.
-    assert captured["body"] == json.dumps(
+    expected_body = json.dumps(
         {"action": "opened", "issue": {"number": 7}}, separators=(",", ":")
     ).encode()
+    assert captured["body"] == expected_body
+
+    expected_sig = hmac_mod.new(b"my-wh-secret", expected_body, hashlib.sha256).hexdigest()
+    assert captured["headers"]["x-hub-signature-256"] == f"sha256={expected_sig}"
+    assert captured["headers"]["x-github-event"] == "issues"
 
 
 @respx.mock
-async def test_forward_event_accepts_raw_string_body() -> None:
+async def test_forward_event_drops_signature_when_no_secret(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Degenerate case: App credentials haven't landed yet. We still
+    forward so the receiver can diagnose via a 401 rather than silently
+    dropping events."""
+
+    async def _no_secret() -> str | None:
+        return None
+
+    monkeypatch.setattr(smee, "_load_webhook_secret", _no_secret)
+
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> Response:
+        captured["headers"] = dict(request.headers)
+        return Response(202)
+
+    respx.post("http://backend/webhook").mock(side_effect=handler)
+    event = {"headers": {"X-GitHub-Event": "issues"}, "body": {"a": 1}}
+    async with httpx.AsyncClient() as client:
+        await smee.forward_event(event, "http://backend/webhook", client=client)
+    assert "x-hub-signature-256" not in captured["headers"]
+
+
+@respx.mock
+async def test_forward_event_accepts_raw_string_body(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _no_secret() -> str | None:
+        return None
+
+    monkeypatch.setattr(smee, "_load_webhook_secret", _no_secret)
+
     def handler(request: httpx.Request) -> Response:
         assert request.content == b"plain-text-body"
         return Response(200)

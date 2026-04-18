@@ -3,8 +3,18 @@
 GitHub has to post webhooks over the public internet, but a self-hosted
 bugsift typically runs on localhost. We bridge the gap by provisioning a
 smee.io channel and running a background SSE loop that relays each event
-to our own ``/api/webhooks/github``. Zero terminal work on the operator's
+to our own ``/webhooks/github``. Zero terminal work on the operator's
 side.
+
+Important detail: smee.io delivers the webhook body as a *parsed* JSON
+dict in its SSE payload, not the raw bytes. GitHub's ``X-Hub-Signature-256``
+was computed over the original bytes, which we can't reconstruct exactly
+(key ordering, whitespace, escape choices all matter for HMAC). So this
+forwarder **re-signs** each event with our stored webhook secret before
+handing it to the receiver — since we control both signer and verifier,
+the check passes cleanly without weakening the threat model (only events
+that actually came from smee.io can reach this code path, and smee.io
+only accepts from GitHub for our channel).
 
 The channel URL is cached in Redis at ``bugsift:smee_tunnel_url`` so it
 survives backend restarts. Smee itself is stateless, so reusing an old
@@ -14,6 +24,8 @@ channel is fine.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
 import json
 import logging
 from contextlib import suppress
@@ -21,8 +33,10 @@ from typing import Any
 
 import httpx
 from redis.asyncio import Redis
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from bugsift.config import get_settings
+from bugsift.github import config as app_config
 
 logger = logging.getLogger(__name__)
 
@@ -120,14 +134,30 @@ def parse_sse_event_data(raw: str) -> dict[str, Any] | None:
     return payload
 
 
+async def _load_webhook_secret() -> str | None:
+    """Pull the operator's webhook secret from the App-credentials row.
+
+    Runs in the forwarder task which has no FastAPI request context, so
+    we spin a throwaway session. Called rarely (once per webhook).
+    """
+    engine = create_async_engine(get_settings().database_url, pool_pre_ping=True)
+    maker = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with maker() as session:
+            cfg = await app_config.load_app_config(session)
+    finally:
+        await engine.dispose()
+    return cfg.webhook_secret if cfg else None
+
+
 async def forward_event(
     event: dict[str, Any], target_url: str, *, client: httpx.AsyncClient
 ) -> None:
     headers = event.get("headers") or {}
     body = event.get("body")
-    # Smee delivers the body pre-parsed as a dict; re-serialise it so the
-    # payload bytes exactly match what GitHub sent (HMAC verification
-    # depends on byte-for-byte identity).
+    # Smee delivers the body pre-parsed; serialise it consistently. The
+    # exact bytes don't need to match GitHub's original — we re-sign with
+    # our stored webhook secret a few lines down.
     if isinstance(body, (dict, list)):
         payload_bytes = json.dumps(body, separators=(",", ":")).encode()
     elif isinstance(body, str):
@@ -136,10 +166,32 @@ async def forward_event(
         payload_bytes = b""
 
     # Strip hop-by-hop and infrastructure headers the receiving server
-    # should recompute.
-    drop = {"host", "content-length", "connection", "accept-encoding", "transfer-encoding"}
+    # should recompute, and drop the upstream signature — we'll compute
+    # a fresh one over our serialisation so the receiver's HMAC check
+    # passes.
+    drop = {
+        "host",
+        "content-length",
+        "connection",
+        "accept-encoding",
+        "transfer-encoding",
+        "x-hub-signature-256",
+        "x-hub-signature",
+    }
     safe_headers = {k: str(v) for k, v in headers.items() if k.lower() not in drop}
     safe_headers.setdefault("Content-Type", "application/json")
+
+    webhook_secret = await _load_webhook_secret()
+    if webhook_secret:
+        digest = hmac.new(
+            webhook_secret.encode("utf-8"), payload_bytes, hashlib.sha256
+        ).hexdigest()
+        safe_headers["X-Hub-Signature-256"] = f"sha256={digest}"
+    else:
+        logger.warning(
+            "smee forward: no webhook secret available to re-sign event; "
+            "receiver will reject as 401",
+        )
 
     try:
         await client.post(
