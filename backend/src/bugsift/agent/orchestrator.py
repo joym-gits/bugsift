@@ -18,6 +18,7 @@ from bugsift.agent.state import TriageState
 from bugsift.agent.steps import classify as classify_step
 from bugsift.agent.steps import comment as comment_step
 from bugsift.agent.steps import dedup as dedup_step
+from bugsift.agent.steps import retrieval as retrieval_step
 from bugsift.llm.base import LLMProvider
 
 logger = logging.getLogger(__name__)
@@ -54,7 +55,15 @@ async def run(
             # Dedup confirmed a duplicate and already populated draft_comment.
             return state
 
-    # Phase 7: retrieval (no-op placeholder)
+    if session is not None and state.enabled_steps.get("retrieval", True):
+        state = await retrieval_step.run(
+            state,
+            session=session,
+            embed_provider=embed_provider,
+            embedding_dim=embedding_dim,
+            llm_provider=provider,
+        )
+
     # Phase 8: reproduction (no-op placeholder)
 
     state = await comment_step.run(state, provider)

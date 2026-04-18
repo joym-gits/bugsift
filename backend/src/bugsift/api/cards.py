@@ -25,9 +25,22 @@ def get_github_client_factory():
     return GithubClient
 
 
+class SuspectedFileOut(BaseModel):
+    file_path: str
+    line_range: str
+    rationale: str
+
+
+class DuplicateOut(BaseModel):
+    issue_number: int
+    rationale: str
+    confidence: float
+
+
 class CardResponse(BaseModel):
     id: int
     repo_full_name: str
+    repo_default_branch: str | None = None
     issue_number: int
     status: str
     classification: str | None
@@ -36,6 +49,8 @@ class CardResponse(BaseModel):
     draft_comment: str | None = None
     proposed_action: str | None = None
     proposed_labels: list[str] | None = None
+    suspected_files: list[SuspectedFileOut] | None = None
+    duplicates: list[DuplicateOut] | None = None
     final_comment: str | None = None
     created_at: datetime
 
@@ -53,7 +68,7 @@ async def list_cards(
     repo = aliased(Repo)
     install = aliased(Installation)
     stmt = (
-        select(TriageCard, repo.full_name)
+        select(TriageCard, repo.full_name, repo.default_branch)
         .join(repo, TriageCard.repo_id == repo.id)
         .join(install, repo.installation_id == install.id)
         .where(install.user_id == user.id)
@@ -61,23 +76,7 @@ async def list_cards(
         .limit(limit)
     )
     rows = (await session.execute(stmt)).all()
-    return [
-        CardResponse(
-            id=card.id,
-            repo_full_name=full_name,
-            issue_number=card.issue_number,
-            status=card.status,
-            classification=card.classification,
-            confidence=float(card.confidence) if card.confidence is not None else None,
-            rationale=card.rationale,
-            draft_comment=card.draft_comment,
-            proposed_action=card.proposed_action,
-            proposed_labels=card.proposed_labels_json,
-            final_comment=card.final_comment,
-            created_at=card.created_at,
-        )
-        for card, full_name in rows
-    ]
+    return [_card_response(card, full_name, branch) for card, full_name, branch in rows]
 
 
 async def _get_owned_card(session: AsyncSession, user: User, card_id: int) -> tuple[TriageCard, Repo, Installation]:
@@ -106,7 +105,7 @@ async def edit_draft(
     card.draft_comment = body.draft_comment
     await session.commit()
     await session.refresh(card)
-    return _card_response(card, repo.full_name)
+    return _card_response(card, repo.full_name, repo.default_branch)
 
 
 @router.post("/{card_id}/skip", response_model=CardResponse)
@@ -123,7 +122,7 @@ async def skip_card(
     card.decided_by_user_id = user.id
     await session.commit()
     await session.refresh(card)
-    return _card_response(card, repo.full_name)
+    return _card_response(card, repo.full_name, repo.default_branch)
 
 
 @router.post("/{card_id}/approve", response_model=CardResponse)
@@ -166,13 +165,36 @@ async def approve_card(
     card.decided_by_user_id = user.id
     await session.commit()
     await session.refresh(card)
-    return _card_response(card, repo.full_name)
+    return _card_response(card, repo.full_name, repo.default_branch)
 
 
-def _card_response(card: TriageCard, repo_full_name: str) -> CardResponse:
+def _card_response(
+    card: TriageCard, repo_full_name: str, repo_default_branch: str | None = None
+) -> CardResponse:
+    suspected = None
+    if card.suspected_files_json:
+        suspected = [
+            SuspectedFileOut(
+                file_path=str(item.get("file_path", "")),
+                line_range=str(item.get("line_range", "")),
+                rationale=str(item.get("rationale", "")),
+            )
+            for item in card.suspected_files_json
+        ]
+    duplicates = None
+    if card.duplicates_json:
+        duplicates = [
+            DuplicateOut(
+                issue_number=int(item.get("issue_number", 0)),
+                rationale=str(item.get("rationale", "")),
+                confidence=float(item.get("confidence", 0.0)),
+            )
+            for item in card.duplicates_json
+        ]
     return CardResponse(
         id=card.id,
         repo_full_name=repo_full_name,
+        repo_default_branch=repo_default_branch,
         issue_number=card.issue_number,
         status=card.status,
         classification=card.classification,
@@ -181,6 +203,8 @@ def _card_response(card: TriageCard, repo_full_name: str) -> CardResponse:
         draft_comment=card.draft_comment,
         proposed_action=card.proposed_action,
         proposed_labels=card.proposed_labels_json,
+        suspected_files=suspected,
+        duplicates=duplicates,
         final_comment=card.final_comment,
         created_at=card.created_at,
     )

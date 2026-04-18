@@ -58,9 +58,22 @@ export function useDeleteKey() {
   });
 }
 
+export type SuspectedFile = {
+  file_path: string;
+  line_range: string;
+  rationale: string;
+};
+
+export type DuplicateCandidate = {
+  issue_number: number;
+  rationale: string;
+  confidence: number;
+};
+
 export type Card = {
   id: number;
   repo_full_name: string;
+  repo_default_branch?: string | null;
   issue_number: number;
   status: string;
   classification: string | null;
@@ -69,6 +82,8 @@ export type Card = {
   draft_comment?: string | null;
   proposed_action?: string | null;
   proposed_labels?: string[] | null;
+  suspected_files?: SuspectedFile[] | null;
+  duplicates?: DuplicateCandidate[] | null;
   final_comment?: string | null;
   created_at: string;
 };

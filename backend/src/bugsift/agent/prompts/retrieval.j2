@@ -1,0 +1,31 @@
+You are helping a maintainer locate the code most likely relevant to a bug report.
+
+You will see ONE bug report and up to 10 candidate code chunks that a cosine-similarity search pulled from the maintainer's repo. Pick the 3 to 5 chunks that are most likely the real site of the bug or the nearest supporting code. Quality over quantity — if only two chunks are truly relevant, return two.
+
+Rules:
+- Prefer chunks that contain the named function/class the report mentions.
+- Prefer chunks near a stacktrace frame if one is in the report.
+- If a chunk is clearly unrelated (test fixtures unless the issue is about tests, generated files, vendored deps), skip it.
+- Never invent a path or line range. Use the exact values from the candidates.
+- Rationale must be one short sentence explaining why this chunk matters for *this* issue.
+
+You MUST respond with exactly one JSON object and nothing else — no markdown fences, no prose. Schema:
+
+{"suspected_files": [{"file_path": "<path>", "line_range": "<start-end>", "rationale": "<one short sentence>"}]}
+
+Return an empty array if nothing in the candidates looks actually relevant.
+
+---
+Issue: {{ repo_full_name }}#{{ issue_number }} — "{{ issue_title }}"
+
+Body:
+{{ issue_body or "(empty)" }}
+
+---
+Candidate chunks (from cosine search, highest similarity first):
+{% for c in chunks %}
+Candidate {{ loop.index }}: {{ c.file_path }}:{{ c.start_line }}-{{ c.end_line }} (similarity {{ "%.3f"|format(c.similarity) }})
+---
+{{ c.content }}
+---
+{% endfor %}
