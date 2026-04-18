@@ -1,0 +1,65 @@
+from __future__ import annotations
+
+from collections.abc import AsyncIterator
+
+import pytest
+import pytest_asyncio
+from cryptography.fernet import Fernet
+from fastapi.testclient import TestClient
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+from bugsift.api.deps import get_session
+from bugsift.api.main import create_app
+from bugsift.config import get_settings
+from bugsift.db.models import Base, User, UserApiKey
+from bugsift.security import crypto
+
+TEST_DB_URL = "sqlite+aiosqlite:///:memory:"
+
+
+@pytest.fixture(autouse=True)
+def _test_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    s = get_settings()
+    monkeypatch.setattr(s, "encryption_key", Fernet.generate_key().decode())
+    monkeypatch.setattr(s, "session_secret", "test-session-secret-abcdef")
+    monkeypatch.setattr(s, "env", "development")
+    monkeypatch.setattr(s, "github_app_client_id", "")
+    monkeypatch.setattr(s, "github_app_client_secret", "")
+    crypto._fernet.cache_clear()
+    yield
+    crypto._fernet.cache_clear()
+
+
+@pytest_asyncio.fixture
+async def db_engine() -> AsyncIterator:
+    """Fresh in-memory SQLite per test, creating just the Phase-2 tables.
+
+    pgvector columns can't run on SQLite, so we intentionally skip CodeChunk
+    and IssueEmbedding tables — those get coverage in phase 6.
+    """
+    engine = create_async_engine(TEST_DB_URL, future=True)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all, tables=[User.__table__, UserApiKey.__table__])
+    yield engine
+    await engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def session(db_engine) -> AsyncIterator[AsyncSession]:
+    maker = async_sessionmaker(db_engine, expire_on_commit=False, class_=AsyncSession)
+    async with maker() as s:
+        yield s
+
+
+@pytest_asyncio.fixture
+async def client(db_engine) -> AsyncIterator[TestClient]:
+    maker = async_sessionmaker(db_engine, expire_on_commit=False, class_=AsyncSession)
+
+    async def _override_session() -> AsyncIterator[AsyncSession]:
+        async with maker() as s:
+            yield s
+
+    app = create_app()
+    app.dependency_overrides[get_session] = _override_session
+    with TestClient(app) as c:
+        yield c

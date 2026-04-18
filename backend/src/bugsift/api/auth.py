@@ -1,0 +1,89 @@
+from __future__ import annotations
+
+import logging
+import secrets
+
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import RedirectResponse
+from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from bugsift.api.deps import get_current_user, get_optional_user, get_session
+from bugsift.config import get_settings
+from bugsift.db.models import User
+from bugsift.github import oauth as github_oauth
+
+logger = logging.getLogger(__name__)
+router = APIRouter(prefix="/auth", tags=["auth"])
+
+OAUTH_STATE_KEY = "oauth_state"
+
+
+class MeResponse(BaseModel):
+    id: int
+    github_id: int
+    github_login: str
+    email: str | None
+
+
+@router.get("/github/start")
+async def github_start(request: Request) -> RedirectResponse:
+    settings = get_settings()
+    if not settings.oauth_configured:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "GitHub OAuth is not configured. Register the GitHub App and set "
+                "GITHUB_APP_CLIENT_ID and GITHUB_APP_CLIENT_SECRET — see docs/installation.md."
+            ),
+        )
+    state = secrets.token_urlsafe(32)
+    request.session[OAUTH_STATE_KEY] = state
+    url = github_oauth.build_authorize_url(settings, state)
+    return RedirectResponse(url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
+
+
+@router.get("/github/callback")
+async def github_callback(
+    request: Request,
+    code: str,
+    state: str,
+    session: AsyncSession = Depends(get_session),
+) -> RedirectResponse:
+    settings = get_settings()
+    expected_state = request.session.pop(OAUTH_STATE_KEY, None)
+    if not expected_state or not secrets.compare_digest(expected_state, state):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="oauth state mismatch")
+
+    token = await github_oauth.exchange_code_for_token(settings, code)
+    gh_user = await github_oauth.fetch_user(token)
+
+    user = (
+        await session.execute(select(User).where(User.github_id == gh_user.id))
+    ).scalar_one_or_none()
+    if user is None:
+        user = User(github_id=gh_user.id, github_login=gh_user.login, email=gh_user.email)
+        session.add(user)
+    else:
+        user.github_login = gh_user.login
+        if gh_user.email:
+            user.email = gh_user.email
+    await session.commit()
+    await session.refresh(user)
+
+    request.session["user_id"] = user.id
+    logger.info("login: user_id=%s github_login=%s", user.id, user.github_login)
+    return RedirectResponse("/dashboard", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.get("/me", response_model=MeResponse | None)
+async def me(user: User | None = Depends(get_optional_user)) -> MeResponse | None:
+    if user is None:
+        return None
+    return MeResponse(id=user.id, github_id=user.github_id, github_login=user.github_login, email=user.email)
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout(request: Request, _: User = Depends(get_current_user)) -> None:
+    request.session.clear()

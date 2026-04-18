@@ -36,11 +36,18 @@ GitHub App variables can stay blank until you finish step 4.
 ## 3. Bring up the stack
 
 ```bash
-docker-compose up --build
+docker-compose up --build -d
+# Apply database migrations on first boot (and after any pull):
+docker-compose exec backend alembic upgrade head
 ```
 
 Visit <http://localhost:8080> — you should see the dashboard. The backend
 health check is at <http://localhost:8080/api/health>.
+
+The "Sign in with GitHub" button is live from Phase 2 onwards, but the OAuth
+flow only works once you complete §4 below and set `GITHUB_APP_CLIENT_ID` /
+`GITHUB_APP_CLIENT_SECRET` in your `.env`. Until then the Start endpoint
+returns 503 with an explanatory message.
 
 For development with hot reload:
 

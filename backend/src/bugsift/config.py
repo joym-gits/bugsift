@@ -27,6 +27,17 @@ class Settings(BaseSettings):
     )
     redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
 
+    github_app_client_id: str = Field(default="", alias="GITHUB_APP_CLIENT_ID")
+    github_app_client_secret: str = Field(default="", alias="GITHUB_APP_CLIENT_SECRET")
+
+    @property
+    def oauth_configured(self) -> bool:
+        return bool(self.github_app_client_id and self.github_app_client_secret)
+
+    @property
+    def oauth_callback_url(self) -> str:
+        return f"{self.public_url.rstrip('/')}/api/auth/github/callback"
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
