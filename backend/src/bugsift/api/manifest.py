@@ -52,11 +52,19 @@ class AppConfigStatus(BaseModel):
     html_url: str | None = None
 
 
+# First-run operator access model: the manifest flow is unauthenticated
+# *only while no App exists yet*. In a self-hosted deployment, whoever
+# can reach the server before onboarding is the operator — there's no
+# one else to authenticate. Once an App is registered, these endpoints
+# flip back to requiring a logged-in user (and delete requires auth),
+# so a drive-by visitor can't hijack the deployment later.
+
+
 @router.get("/status", response_model=AppConfigStatus)
 async def app_status(
     session: AsyncSession = Depends(get_session),
-    _: User = Depends(get_current_user),
 ) -> AppConfigStatus:
+    """Public: the landing page reads this before deciding what to show."""
     cfg = await app_config.load_app_config(session)
     if cfg is None:
         return AppConfigStatus(configured=False)
@@ -69,8 +77,18 @@ async def app_status(
 async def start(
     request: Request,
     body: StartRequest,
-    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
 ) -> HTMLResponse:
+    existing = await app_config.load_app_config(session)
+    if existing is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "A GitHub App is already registered with this deployment. "
+                "Sign in, go to Settings, and delete it first if you want to "
+                "re-register."
+            ),
+        )
     settings = get_settings()
     state = secrets.token_urlsafe(32)
     request.session[SESSION_STATE_KEY] = state
@@ -79,7 +97,7 @@ async def start(
     manifest = _build_manifest(
         public_url=settings.public_url,
         webhook_url=str(body.webhook_url),
-        suffix=body.app_name_suffix or user.github_login,
+        suffix=body.app_name_suffix or _default_suffix(settings.public_url),
     )
     # GitHub's manifest flow expects an HTML POST form to
     # https://github.com/settings/apps/new?state=... with a single
@@ -107,8 +125,9 @@ async def callback(
     code: str,
     state: str,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
 ) -> RedirectResponse:
+    """Anonymous — matches the POST /start that kicked the flow off. The
+    CSRF state-token in the session is the authorisation signal here."""
     expected_state = request.session.pop(SESSION_STATE_KEY, None)
     request.session.pop(SESSION_WEBHOOK_URL_KEY, None)
     if not expected_state or not secrets.compare_digest(expected_state, state):
@@ -182,6 +201,16 @@ def _build_manifest(*, public_url: str, webhook_url: str, suffix: str) -> dict:
         },
         "default_events": ["issues", "issue_comment", "push"],
     }
+
+
+def _default_suffix(public_url: str) -> str:
+    """Fallback App-name slug when the caller doesn't provide one.
+
+    We avoid global uniqueness collisions by mixing in a short random tag.
+    """
+    host_part = public_url.split("//", 1)[-1].split(":", 1)[0].split("/", 1)[0]
+    safe = "".join(c if c.isalnum() else "-" for c in host_part).strip("-") or "local"
+    return f"{safe}-{secrets.token_hex(3)}"
 
 
 async def _persist_credentials(session: AsyncSession, payload: dict) -> None:

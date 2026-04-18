@@ -35,62 +35,74 @@ function OnboardingInner() {
   const me = useMe();
   const signedIn = Boolean(me.data);
   const searchParams = useSearchParams();
-  const appStatus = useAppStatus(signedIn);
+  // Status is public (no auth) — we need it *before* login in order to
+  // show Step 1 to the first-run operator.
+  const appStatus = useAppStatus(true);
   const keys = useKeys(signedIn);
   const repos = useRepos(signedIn);
+  const appConfigured = appStatus.data?.configured ?? false;
 
   const currentStep = resolveStep({
     forced: searchParams?.get("step") as Step | null,
-    appConfigured: appStatus.data?.configured ?? false,
+    appConfigured,
     hasRepo: (repos.data?.length ?? 0) > 0,
     hasKey: (keys.data?.length ?? 0) > 0,
   });
 
+  // Steps 2+ need a signed-in user to link installations / persist keys.
+  // Step 1 is intentionally anonymous so the first-run operator can create
+  // the App before any OAuth is possible.
+  const needsSignIn = currentStep !== "app" && !signedIn;
+
   return (
     <AppShell me={me.data ?? null}>
-      {!signedIn ? (
-        <div className="mx-auto max-w-xl py-16 text-center">
-          <h1 className="text-3xl font-semibold tracking-tight">Onboarding</h1>
-          <p className="mt-3 text-muted-foreground">
-            Sign in with GitHub to walk through the three setup steps.
-          </p>
-          <a
-            href={`${API_BASE_URL}/auth/github/start`}
-            className="mt-6 inline-flex h-10 items-center rounded-md bg-primary px-5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-          >
-            Sign in with GitHub
-          </a>
-        </div>
-      ) : (
-        <>
-          <PageHeader
-            title="Get set up"
-            description="Three quick steps and you're triaging. No .env editing required."
-          />
-          <StepShell
-            steps={[
-              { id: "app", label: "Register App", icon: Rocket },
-              { id: "install", label: "Install on repo", icon: ExternalLink },
-              { id: "key", label: "Add LLM key", icon: KeyRound },
-            ]}
-            current={currentStep}
-          />
+      <PageHeader
+        title="Get set up"
+        description="Three quick steps and you're triaging. No .env editing required."
+      />
+      <StepShell
+        steps={[
+          { id: "app", label: "Register App", icon: Rocket },
+          { id: "install", label: "Install on repo", icon: ExternalLink },
+          { id: "key", label: "Add LLM key", icon: KeyRound },
+        ]}
+        current={currentStep}
+      />
 
-          <div className="mt-8">
-            {currentStep === "app" && (
-              <AppStep configured={appStatus.data?.configured ?? false} />
-            )}
-            {currentStep === "install" && (
-              <InstallStep
-                appHtmlUrl={appStatus.data?.html_url ?? null}
-                hasRepo={(repos.data?.length ?? 0) > 0}
-              />
-            )}
-            {currentStep === "key" && <KeyStep />}
-          </div>
-        </>
-      )}
+      <div className="mt-8">
+        {needsSignIn ? (
+          <SignInPrompt nextStep={currentStep} />
+        ) : currentStep === "app" ? (
+          <AppStep configured={appConfigured} />
+        ) : currentStep === "install" ? (
+          <InstallStep
+            appHtmlUrl={appStatus.data?.html_url ?? null}
+            hasRepo={(repos.data?.length ?? 0) > 0}
+          />
+        ) : (
+          <KeyStep />
+        )}
+      </div>
     </AppShell>
+  );
+}
+
+function SignInPrompt({ nextStep }: { nextStep: Step }) {
+  const label =
+    nextStep === "install"
+      ? "Installing the App on a repo links it to your bugsift account."
+      : "Your LLM key is stored against your user, encrypted at rest.";
+  return (
+    <section className="rounded-lg border bg-card p-8 text-center shadow-sm">
+      <h2 className="text-xl font-semibold">Sign in to continue</h2>
+      <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">{label}</p>
+      <a
+        href={`${API_BASE_URL}/auth/github/start`}
+        className="mt-6 inline-flex h-10 items-center rounded-md bg-primary px-5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+      >
+        Sign in with GitHub
+      </a>
+    </section>
   );
 }
 

@@ -21,12 +21,15 @@ export default function DashboardPage() {
   const signedIn = Boolean(me.data);
   const cards = useCards(signedIn, { status: "pending", limit: 50 });
   const repos = useRepos(signedIn);
-  const appStatus = useAppStatus(signedIn);
+  // Public endpoint — call it even signed-out so we know whether to show
+  // the first-run setup CTA vs a bare sign-in button.
+  const appStatus = useAppStatus(true);
+  const appConfigured = appStatus.data?.configured ?? false;
 
   return (
     <AppShell me={me.data ?? null}>
       {!signedIn ? (
-        <SignedOutHero />
+        <SignedOutHero appConfigured={appConfigured} />
       ) : (
         <>
           <PageHeader
@@ -175,7 +178,10 @@ function OnboardingBanner() {
   );
 }
 
-function SignedOutHero() {
+function SignedOutHero({ appConfigured }: { appConfigured: boolean }) {
+  // First-run operator needs to set up the GitHub App before OAuth login
+  // is even possible. Route them to /onboarding. Once the App is in place,
+  // subsequent visitors see the normal "Sign in with GitHub" CTA.
   return (
     <div className="mx-auto max-w-2xl py-24 text-center">
       <div className="mb-6 inline-flex items-center gap-2 rounded-full border bg-card px-3 py-1 text-xs font-medium text-muted-foreground">
@@ -190,12 +196,21 @@ function SignedOutHero() {
         issue so your attention goes only to the ones that need it.
       </p>
       <div className="mt-8 flex items-center justify-center gap-3">
-        <a
-          href={`${API_BASE_URL}/auth/github/start`}
-          className="inline-flex h-11 items-center gap-2 rounded-md bg-primary px-6 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-        >
-          Sign in with GitHub <ArrowRight className="h-4 w-4" />
-        </a>
+        {appConfigured ? (
+          <a
+            href={`${API_BASE_URL}/auth/github/start`}
+            className="inline-flex h-11 items-center gap-2 rounded-md bg-primary px-6 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          >
+            Sign in with GitHub <ArrowRight className="h-4 w-4" />
+          </a>
+        ) : (
+          <Link
+            href="/onboarding"
+            className="inline-flex h-11 items-center gap-2 rounded-md bg-primary px-6 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          >
+            Get started <ArrowRight className="h-4 w-4" />
+          </Link>
+        )}
         <a
           href={`${API_BASE_URL}/health`}
           className="inline-flex h-11 items-center rounded-md border border-input bg-background px-6 text-sm font-medium hover:bg-accent hover:text-accent-foreground"
@@ -203,6 +218,11 @@ function SignedOutHero() {
           Check backend
         </a>
       </div>
+      {!appConfigured && (
+        <p className="mt-4 text-xs text-muted-foreground">
+          First run? Setup takes ~2 minutes and doesn&apos;t touch .env.
+        </p>
+      )}
       <div className="mt-16 grid gap-4 text-left sm:grid-cols-3">
         {[
           { title: "Classify", copy: "bug / feature / question / docs / spam / other with confidence." },
