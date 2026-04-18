@@ -11,6 +11,7 @@ import {
   type Repo,
   useAppStatus,
   useCards,
+  useKeys,
   useMe,
   useRepos,
   useRerunCard,
@@ -21,10 +22,13 @@ export default function DashboardPage() {
   const signedIn = Boolean(me.data);
   const cards = useCards(signedIn, { status: "pending", limit: 50 });
   const repos = useRepos(signedIn);
+  const keys = useKeys(signedIn);
   // Public endpoint — call it even signed-out so we know whether to show
   // the first-run setup CTA vs a bare sign-in button.
   const appStatus = useAppStatus(true);
   const appConfigured = appStatus.data?.configured ?? false;
+  const hasRepo = (repos.data?.length ?? 0) > 0;
+  const hasKey = (keys.data?.length ?? 0) > 0;
 
   return (
     <AppShell me={me.data ?? null}>
@@ -41,9 +45,11 @@ export default function DashboardPage() {
             }
           />
 
-          {appStatus.data && !appStatus.data.configured && (
-            <OnboardingBanner />
-          )}
+          <OnboardingBanner
+            appConfigured={appConfigured}
+            hasRepo={hasRepo}
+            hasKey={hasKey}
+          />
 
           {cards.data && cards.data.some((c) => !c.classification) && (
             <StuckCardsBanner
@@ -158,18 +164,45 @@ function StuckCardsBanner({ count, ids }: { count: number; ids: number[] }) {
   );
 }
 
-function OnboardingBanner() {
+function OnboardingBanner({
+  appConfigured,
+  hasRepo,
+  hasKey,
+}: {
+  appConfigured: boolean;
+  hasRepo: boolean;
+  hasKey: boolean;
+}) {
+  // Pick the earliest missing step — user always jumps back to wherever
+  // they left off, not to the beginning of the wizard. Once everything's
+  // in place we render nothing.
+  let step: "app" | "install" | "key" | null = null;
+  let title = "";
+  let description = "";
+  if (!appConfigured) {
+    step = "app";
+    title = "Finish setup to start triaging";
+    description = "Register your GitHub App — one click, about a minute.";
+  } else if (!hasRepo) {
+    step = "install";
+    title = "Install bugsift on a repo";
+    description = "Pick the repo you want triaged. You can install on more later.";
+  } else if (!hasKey) {
+    step = "key";
+    title = "Add your LLM API key";
+    description = "Without a key the pipeline can't classify or draft comments.";
+  }
+  if (step === null) return null;
+
   return (
     <div className="mb-6 flex items-center gap-3 rounded-lg border border-primary/30 bg-primary/5 p-4">
       <Rocket className="h-5 w-5 shrink-0 text-primary" />
       <div className="flex-1 text-sm">
-        <div className="font-medium">Finish setup to start triaging</div>
-        <div className="text-muted-foreground">
-          Register your GitHub App and install it on a repo — takes about two minutes.
-        </div>
+        <div className="font-medium">{title}</div>
+        <div className="text-muted-foreground">{description}</div>
       </div>
       <Link
-        href="/onboarding"
+        href={`/onboarding?step=${step}`}
         className="inline-flex h-9 shrink-0 items-center gap-1 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90"
       >
         Continue <ArrowRight className="h-3.5 w-3.5" />
