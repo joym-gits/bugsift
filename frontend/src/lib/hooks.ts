@@ -91,3 +91,22 @@ export function useRepos(enabled: boolean) {
     enabled,
   });
 }
+
+export type TestKeyResult = {
+  ok: boolean;
+  provider: ApiKey["provider"];
+  model: string | null;
+  sample: string | null;
+  latency_ms: number | null;
+  error: string | null;
+};
+
+export function useTestKey() {
+  return useMutation({
+    mutationFn: (provider: ApiKey["provider"]) =>
+      apiFetch<TestKeyResult>("/llm/test", {
+        method: "POST",
+        body: JSON.stringify({ provider }),
+      }),
+  });
+}

@@ -8,10 +8,12 @@ import { Label } from "@/components/ui/label";
 import { API_BASE_URL, ApiError } from "@/lib/api";
 import {
   type ApiKey,
+  type TestKeyResult,
   useCreateKey,
   useDeleteKey,
   useKeys,
   useMe,
+  useTestKey,
 } from "@/lib/hooks";
 
 const PROVIDERS: ApiKey["provider"][] = ["anthropic", "openai", "google", "ollama"];
@@ -25,6 +27,8 @@ export default function SettingsPage() {
   const [provider, setProvider] = useState<ApiKey["provider"]>("anthropic");
   const [keyValue, setKeyValue] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
+  const testKey = useTestKey();
+  const [testResults, setTestResults] = useState<Record<number, TestKeyResult>>({});
 
   if (me.isLoading) {
     return (
@@ -121,22 +125,51 @@ export default function SettingsPage() {
           <p className="mt-2 text-sm text-muted-foreground">loading…</p>
         ) : keys.data && keys.data.length > 0 ? (
           <ul className="mt-4 divide-y">
-            {keys.data.map((k) => (
-              <li key={k.id} className="flex items-center justify-between py-3">
-                <div>
-                  <div className="font-medium">{k.provider}</div>
-                  <div className="text-sm text-muted-foreground">{k.masked_hint}</div>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => deleteKey.mutate(k.id)}
-                  disabled={deleteKey.isPending}
-                >
-                  Delete
-                </Button>
-              </li>
-            ))}
+            {keys.data.map((k) => {
+              const result = testResults[k.id];
+              return (
+                <li key={k.id} className="flex flex-col gap-2 py-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="font-medium">{k.provider}</div>
+                      <div className="text-sm text-muted-foreground">{k.masked_hint}</div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={testKey.isPending}
+                        onClick={async () => {
+                          const r = await testKey.mutateAsync(k.provider);
+                          setTestResults((prev) => ({ ...prev, [k.id]: r }));
+                        }}
+                      >
+                        {testKey.isPending && testKey.variables === k.provider
+                          ? "testing…"
+                          : "Test key"}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => deleteKey.mutate(k.id)}
+                        disabled={deleteKey.isPending}
+                      >
+                        Delete
+                      </Button>
+                    </div>
+                  </div>
+                  {result && (
+                    <div
+                      className={`text-sm ${result.ok ? "text-muted-foreground" : "text-destructive"}`}
+                    >
+                      {result.ok
+                        ? `ok · ${result.model ?? "model"} · ${result.latency_ms}ms · “${result.sample}”`
+                        : `failed: ${result.error}`}
+                    </div>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         ) : (
           <p className="mt-2 text-sm text-muted-foreground">no keys saved yet.</p>
