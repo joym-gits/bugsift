@@ -21,7 +21,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from bugsift.db.types import JSONB
 
-EMBEDDING_DIM = 1536
+SUPPORTED_EMBEDDING_DIMS = (1536, 768)
 
 
 class Base(DeclarativeBase):
@@ -87,6 +87,11 @@ class Repo(Base):
     indexed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     indexing_status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
 
+    # Embedding provider + dimension is fixed per-repo at first index. Changing
+    # requires a full re-index. Null until the first index completes.
+    embedding_model: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    embedding_dim: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
     installation: Mapped[Installation] = relationship(back_populates="repos")
     config: Mapped[RepoConfig | None] = relationship(back_populates="repo", uselist=False, cascade="all, delete-orphan")
 
@@ -145,7 +150,11 @@ class CodeChunk(Base):
     start_line: Mapped[int] = mapped_column(Integer, nullable=False)
     end_line: Mapped[int] = mapped_column(Integer, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    embedding: Mapped[list[float]] = mapped_column(Vector(EMBEDDING_DIM), nullable=False)
+    # Exactly one of the two embedding columns is populated per row; the
+    # repo's embedding_dim tells callers which to use. A CHECK constraint in
+    # the migration enforces the XOR.
+    embedding_1536: Mapped[list[float] | None] = mapped_column(Vector(1536), nullable=True)
+    embedding_768: Mapped[list[float] | None] = mapped_column(Vector(768), nullable=True)
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     indexed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
@@ -159,7 +168,8 @@ class IssueEmbedding(Base):
     issue_number: Mapped[int] = mapped_column(Integer, nullable=False)
     title: Mapped[str] = mapped_column(Text, nullable=False)
     body_excerpt: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    embedding: Mapped[list[float]] = mapped_column(Vector(EMBEDDING_DIM), nullable=False)
+    embedding_1536: Mapped[list[float] | None] = mapped_column(Vector(1536), nullable=True)
+    embedding_768: Mapped[list[float] | None] = mapped_column(Vector(768), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )

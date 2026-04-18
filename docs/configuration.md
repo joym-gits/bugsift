@@ -50,3 +50,28 @@ reproduce_languages: [python, node]
 Changes take effect on the next issue event. To backfill decisions already
 made under the old config, delete the affected triage cards and re-process
 the issues manually via `scripts/index-repo.py`.
+
+## Embedding provider
+
+Dedup (Step 3) and codebase retrieval (Step 4) both use vector embeddings.
+Anthropic has no embeddings API, so if you've only configured an Anthropic
+key the pipeline will cleanly skip dedup/retrieval and still run classify +
+comment. To unlock dedup and retrieval you need one additional key.
+
+Preference order (first available wins):
+
+| Provider | Model | Dimension | Cost |
+|---|---|---|---|
+| OpenAI | `text-embedding-3-small` | 1536 | ~$0.02 / 1M tokens |
+| Ollama | `nomic-embed-text` | 768 | free, local |
+| Google | `text-embedding-004` | 768 | free tier |
+
+Each repo pins to whichever model's embeddings it first stored. Switching
+providers requires a full re-index:
+
+```bash
+backend/.venv/bin/python scripts/index-repo.py --repo owner/name
+```
+
+Per-repo dimension and model are visible in `repos.embedding_model` /
+`repos.embedding_dim`.

@@ -20,6 +20,7 @@ from bugsift.agent.steps import ingest
 from bugsift.db.models import Installation, LLMUsage, Repo, RepoConfig, TriageCard, User
 from bugsift.db.session import SessionLocal
 from bugsift.llm.factory import get_provider_for_user
+from bugsift.retrieval.embedding import EmbeddingUnavailable, get_embedder_for_repo
 from bugsift.security import crypto
 
 logger = logging.getLogger(__name__)
@@ -105,8 +106,28 @@ async def _process_issue_opened(payload: dict[str, Any]) -> None:
             await session.commit()
             return
 
+        # Dedup needs an embedding-capable provider. Degrade gracefully if
+        # none — classify + comment still run.
+        embed_provider = None
+        embedding_dim: int | None = None
         try:
-            state = await orchestrator.run(state, provider)
+            embed_provider, choice = await get_embedder_for_repo(session, repo, install.user_id)
+            embedding_dim = choice.dim
+            if repo.embedding_model is None:
+                repo.embedding_model = f"{choice.provider_name}:{choice.model}"
+                repo.embedding_dim = choice.dim
+                await session.flush()
+        except EmbeddingUnavailable as e:
+            logger.info("dedup disabled for %s: %s", repo.full_name, e)
+
+        try:
+            state = await orchestrator.run(
+                state,
+                provider,
+                session=session,
+                embed_provider=embed_provider,
+                embedding_dim=embedding_dim,
+            )
         except Exception:
             logger.exception(
                 "orchestrator failed for %s#%s", state.repo_full_name, state.issue_number

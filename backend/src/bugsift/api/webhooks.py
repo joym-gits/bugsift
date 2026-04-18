@@ -15,6 +15,7 @@ from bugsift.config import get_settings
 from bugsift.db.models import Installation, Repo, RepoConfig
 from bugsift.github.rate_limit import allow_installation_event
 from bugsift.github.webhooks import verify_signature
+from bugsift.workers import indexing as indexing_jobs
 from bugsift.workers import triage as triage_jobs
 
 logger = logging.getLogger(__name__)
@@ -42,6 +43,37 @@ def _enqueue_triage(payload: dict[str, Any]) -> None:
     connection = Redis.from_url(settings.redis_url)
     queue = Queue("triage", connection=connection)
     queue.enqueue(triage_jobs.process_issue_opened, payload)
+
+
+def _enqueue_index_repo(repo_id: int) -> None:
+    settings = get_settings()
+    connection = Redis.from_url(settings.redis_url)
+    queue = Queue("indexing", connection=connection)
+    queue.enqueue(indexing_jobs.index_repo, repo_id)
+
+
+def _enqueue_index_repo_delta(
+    repo_id: int, *, added: list[str], modified: list[str], removed: list[str]
+) -> None:
+    settings = get_settings()
+    connection = Redis.from_url(settings.redis_url)
+    queue = Queue("indexing", connection=connection)
+    queue.enqueue(
+        indexing_jobs.index_repo_delta,
+        repo_id,
+        added=added,
+        modified=modified,
+        removed=removed,
+    )
+
+
+def _enqueue_embed_issue(
+    repo_id: int, issue_number: int, title: str, body: str
+) -> None:
+    settings = get_settings()
+    connection = Redis.from_url(settings.redis_url)
+    queue = Queue("indexing", connection=connection)
+    queue.enqueue(indexing_jobs.embed_issue, repo_id, issue_number, title, body)
 
 
 @router.post("/github", status_code=status.HTTP_202_ACCEPTED)
@@ -87,7 +119,16 @@ async def github_webhook(
             if not allowed:
                 return {"status": "rate_limited"}
         _enqueue_triage(payload)
+        await _enqueue_embed_issue_for_payload(session, payload)
         return {"status": "queued"}
+
+    if event == "issues" and action == "edited":
+        await _enqueue_embed_issue_for_payload(session, payload)
+        return {"status": "queued"}
+
+    if event == "push":
+        await _handle_push(session, payload)
+        return {"status": "ok"}
 
     logger.debug("ignoring webhook event=%s action=%s", event, action)
     return {"status": "ignored"}
@@ -116,7 +157,11 @@ async def _handle_installation(
             installation = Installation(github_installation_id=github_installation_id)
             session.add(installation)
             await session.flush()
-        await _upsert_repos(session, installation, payload.get("repositories") or [])
+        new_repos = await _upsert_repos(session, installation, payload.get("repositories") or [])
+        await session.commit()
+        for repo_id in new_repos:
+            _enqueue_index_repo(repo_id)
+        return
     elif action == "deleted":
         if installation is not None:
             await session.delete(installation)
@@ -143,7 +188,11 @@ async def _handle_installation_repositories(
         return
 
     if action == "added":
-        await _upsert_repos(session, installation, payload.get("repositories_added") or [])
+        new_repos = await _upsert_repos(session, installation, payload.get("repositories_added") or [])
+        await session.commit()
+        for repo_id in new_repos:
+            _enqueue_index_repo(repo_id)
+        return
     elif action == "removed":
         removed_ids = [r.get("id") for r in (payload.get("repositories_removed") or []) if r.get("id")]
         if removed_ids:
@@ -157,7 +206,10 @@ async def _handle_installation_repositories(
 
 async def _upsert_repos(
     session: AsyncSession, installation: Installation, repositories: list[dict[str, Any]]
-) -> None:
+) -> list[int]:
+    """Insert or update repos under ``installation``. Returns ids of newly
+    created repos so the caller can enqueue an initial index for them."""
+    new_repo_ids: list[int] = []
     for repo_payload in repositories:
         github_repo_id = repo_payload.get("id")
         if not github_repo_id:
@@ -188,3 +240,61 @@ async def _upsert_repos(
                 reproduce_languages_json=DEFAULT_REPRO_LANGUAGES,
             )
         )
+        new_repo_ids.append(repo.id)
+    return new_repo_ids
+
+
+async def _handle_push(session: AsyncSession, payload: dict[str, Any]) -> None:
+    """Only process push events against the repo's default branch; compute
+    the union of added/modified/removed paths across all commits in the push."""
+    ref = payload.get("ref") or ""
+    repo_payload = payload.get("repository") or {}
+    github_repo_id = repo_payload.get("id")
+    default_branch = repo_payload.get("default_branch") or "main"
+    if ref != f"refs/heads/{default_branch}" or not github_repo_id:
+        return
+
+    repo = (
+        await session.execute(select(Repo).where(Repo.github_repo_id == github_repo_id))
+    ).scalar_one_or_none()
+    if repo is None:
+        return
+
+    added: set[str] = set()
+    modified: set[str] = set()
+    removed: set[str] = set()
+    for commit in payload.get("commits") or []:
+        added.update(commit.get("added") or [])
+        modified.update(commit.get("modified") or [])
+        removed.update(commit.get("removed") or [])
+    # A path removed in one commit and re-added in another should count as modified.
+    overlap = (added | modified) & removed
+    removed -= overlap
+
+    if not (added or modified or removed):
+        return
+    _enqueue_index_repo_delta(
+        repo.id, added=sorted(added), modified=sorted(modified), removed=sorted(removed)
+    )
+
+
+async def _enqueue_embed_issue_for_payload(
+    session: AsyncSession, payload: dict[str, Any]
+) -> None:
+    issue = payload.get("issue") or {}
+    repo_payload = payload.get("repository") or {}
+    github_repo_id = repo_payload.get("id")
+    issue_number = issue.get("number")
+    if not github_repo_id or not issue_number:
+        return
+    repo = (
+        await session.execute(select(Repo).where(Repo.github_repo_id == github_repo_id))
+    ).scalar_one_or_none()
+    if repo is None:
+        return
+    _enqueue_embed_issue(
+        repo.id,
+        int(issue_number),
+        str(issue.get("title") or ""),
+        str(issue.get("body") or ""),
+    )

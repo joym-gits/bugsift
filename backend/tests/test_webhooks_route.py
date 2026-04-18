@@ -36,6 +36,14 @@ def _capture_enqueue(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
     return captured
 
 
+@pytest.fixture(autouse=True)
+def _stub_indexing_enqueue(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Indexing + embed jobs hit Redis; stub for unit tests."""
+    monkeypatch.setattr(webhook_route, "_enqueue_index_repo", lambda *a, **kw: None)
+    monkeypatch.setattr(webhook_route, "_enqueue_index_repo_delta", lambda *a, **kw: None)
+    monkeypatch.setattr(webhook_route, "_enqueue_embed_issue", lambda *a, **kw: None)
+
+
 def _post(client, secret: str, event: str, body: dict):
     raw = json.dumps(body).encode()
     return client.post(
