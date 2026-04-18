@@ -83,14 +83,20 @@ cap: never exceed configured monthly budget by more than 10% in a single job.
 
 Every reproduction runs in an ephemeral Docker container with:
 
-- `--network none` except for a whitelisted egress proxy (PyPI, npm only).
-- No DNS resolution outside the proxy.
-- Read-only root filesystem; only `/tmp` writable.
-- All Linux capabilities dropped.
-- No privileged mode.
+- Read-only root filesystem; only `/tmp` writable (tmpfs).
+- All Linux capabilities dropped (`--cap-drop=ALL`).
+- `--security-opt=no-new-privileges`.
 - 60-second wall-clock timeout (hard kill).
-- 512MB memory cap, 1 CPU, 50-process limit.
-- Image torn down after each run.
+- 512MB memory cap (with `memswap=memory` to prevent swap escape).
+- 1 CPU (`cpu_period=100000, cpu_quota=100000`).
+- 50-process limit.
+- Ephemeral: container is `docker rm`'d after each run.
+
+**v1 network posture:** the v1 sandbox uses Docker's default bridge network
+so scripts can `pip install` or `npm install --global` a single dependency
+at runtime. The project brief §5.5 calls for `--network none` plus a
+whitelisted egress proxy (PyPI, npm only); that proxy is planned follow-up
+work. Every other constraint in §5.5 is enforced today.
 
 ## Repo isolation
 

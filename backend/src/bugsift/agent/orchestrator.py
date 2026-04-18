@@ -18,6 +18,7 @@ from bugsift.agent.state import TriageState
 from bugsift.agent.steps import classify as classify_step
 from bugsift.agent.steps import comment as comment_step
 from bugsift.agent.steps import dedup as dedup_step
+from bugsift.agent.steps import reproduction as reproduction_step
 from bugsift.agent.steps import retrieval as retrieval_step
 from bugsift.llm.base import LLMProvider
 
@@ -35,6 +36,7 @@ async def run(
     session: AsyncSession | None = None,
     embed_provider: _Embedder | None = None,
     embedding_dim: int | None = None,
+    reproduce_languages: set[str] | None = None,
 ) -> TriageState:
     if state.enabled_steps.get("classify", True):
         state = await classify_step.run(state, provider)
@@ -64,7 +66,10 @@ async def run(
             llm_provider=provider,
         )
 
-    # Phase 8: reproduction (no-op placeholder)
+    if state.enabled_steps.get("reproduction", True):
+        state = await reproduction_step.run(
+            state, provider, allowed_languages=reproduce_languages
+        )
 
     state = await comment_step.run(state, provider)
     state.status = "complete"

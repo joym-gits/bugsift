@@ -214,7 +214,11 @@ async def test_orchestrator_classify_then_comment() -> None:
         _resp('{"classification":"bug","confidence":0.9,"rationale":"null deref"}'),
         _resp('{"comment":"ack","proposed_labels":["bug"],"proposed_action":"comment_and_label"}'),
     ])
-    out = await orchestrator.run(_state(), provider)
+    state = _state()
+    # Reproduction is wired separately (phase 8) and needs its own LLM + sandbox;
+    # this test only exercises classify → comment.
+    state.enabled_steps = {"classify": True, "dedup": True, "retrieval": True, "reproduction": False}
+    out = await orchestrator.run(state, provider)
     assert out.status == "complete"
     assert out.classification == "bug"
     assert out.draft_comment == "ack"

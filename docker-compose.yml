@@ -51,6 +51,11 @@ services:
     environment:
       BUGSIFT_ROLE: worker
     command: ["python", "-m", "bugsift.workers.runner"]
+    # The worker runs reproduction attempts by spawning sibling containers
+    # via the host's Docker daemon. Mounting the socket is a known privilege
+    # escalation surface — treat this like root on the host. See §5.5.
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       postgres:
         condition: service_healthy

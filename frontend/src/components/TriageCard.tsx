@@ -103,6 +103,22 @@ export function TriageCard({ card }: { card: Card }) {
         </details>
       )}
 
+      {card.reproduction_verdict && (
+        <details className="mt-3 rounded-md border bg-muted/10 p-3 text-sm">
+          <summary className="flex cursor-pointer items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            <span>Reproduction</span>
+            <span className={verdictBadgeClass(card.reproduction_verdict)}>
+              {card.reproduction_verdict.replace(/_/g, " ")}
+            </span>
+          </summary>
+          {card.reproduction_log && (
+            <pre className="mt-2 max-h-[280px] overflow-auto whitespace-pre-wrap rounded bg-background p-2 font-mono text-xs">
+              {card.reproduction_log}
+            </pre>
+          )}
+        </details>
+      )}
+
       {card.duplicates && card.duplicates.length > 0 && (
         <div className="mt-3 rounded-md border bg-muted/10 p-3 text-sm">
           <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -184,6 +200,18 @@ export function TriageCard({ card }: { card: Card }) {
       )}
     </article>
   );
+}
+
+function verdictBadgeClass(verdict: string): string {
+  const base = "rounded-full border px-2 py-0.5 text-[10px] normal-case";
+  switch (verdict) {
+    case "reproduced":
+      return `${base} border-destructive/40 bg-destructive/10 text-destructive`;
+    case "not_reproduced":
+      return `${base} border-green-600/40 bg-green-600/10 text-green-700`;
+    default:
+      return `${base}`;
+  }
 }
 
 function githubBlobUrl(

@@ -120,6 +120,8 @@ async def _process_issue_opened(payload: dict[str, Any]) -> None:
         except EmbeddingUnavailable as e:
             logger.info("dedup disabled for %s: %s", repo.full_name, e)
 
+        reproduce_languages = _reproduce_languages_from_config(config)
+
         try:
             state = await orchestrator.run(
                 state,
@@ -127,6 +129,7 @@ async def _process_issue_opened(payload: dict[str, Any]) -> None:
                 session=session,
                 embed_provider=embed_provider,
                 embedding_dim=embedding_dim,
+                reproduce_languages=reproduce_languages,
             )
         except Exception:
             logger.exception(
@@ -138,6 +141,19 @@ async def _process_issue_opened(payload: dict[str, Any]) -> None:
         await session.flush()  # populate card.id so LLMUsage can reference it
         _record_llm_usage(session, state, card_id=card.id)
         await session.commit()
+
+
+def _reproduce_languages_from_config(config: RepoConfig | None) -> set[str] | None:
+    """RepoConfig stores reproduce_languages as JSON. Accept either a list
+    (``["python", "node"]``) or a dict with a ``languages`` key."""
+    if config is None or not config.reproduce_languages_json:
+        return None
+    raw = config.reproduce_languages_json
+    if isinstance(raw, dict):
+        raw = raw.get("languages") or []
+    if not isinstance(raw, list):
+        return None
+    return {str(x).strip().lower() for x in raw if str(x).strip()}
 
 
 async def _load_user(session, user_id: int) -> User:

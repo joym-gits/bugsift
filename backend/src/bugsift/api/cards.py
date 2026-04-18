@@ -51,6 +51,8 @@ class CardResponse(BaseModel):
     proposed_labels: list[str] | None = None
     suspected_files: list[SuspectedFileOut] | None = None
     duplicates: list[DuplicateOut] | None = None
+    reproduction_verdict: str | None = None
+    reproduction_log: str | None = None
     final_comment: str | None = None
     created_at: datetime
 
@@ -205,6 +207,8 @@ def _card_response(
         proposed_labels=card.proposed_labels_json,
         suspected_files=suspected,
         duplicates=duplicates,
+        reproduction_verdict=card.reproduction_verdict,
+        reproduction_log=card.reproduction_log,
         final_comment=card.final_comment,
         created_at=card.created_at,
     )

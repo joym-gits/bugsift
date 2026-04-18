@@ -39,8 +39,17 @@ Out of scope:
 
 ## Known sensitive surfaces
 
-- `repro/sandbox.py` is the most security-critical module. It must enforce
-  every constraint in §5.5 of the project brief.
+- `repro/sandbox.py` is the most security-critical module. It enforces the
+  constraints in §5.5 of the project brief: read-only root filesystem,
+  writable `/tmp` tmpfs only, all Linux capabilities dropped,
+  `no-new-privileges`, `pids-limit=50`, `memory=512m`, `cpus=1`, hard 60s
+  wall-clock timeout, ephemeral (`--rm`). **Known follow-up:** the
+  "`--network none` + whitelisted egress proxy to PyPI/npm only" part of
+  §5.5 is not yet implemented; v1 uses the default bridge network so scripts
+  can `pip install` a single dependency at runtime. Tracked as follow-up.
+- The worker container has `/var/run/docker.sock` mounted. This is
+  equivalent to root on the host — treat the worker image accordingly and
+  don't run untrusted code in the same container.
 - `security/crypto.py` owns API-key-at-rest encryption and must never log or
   return plaintext keys outside the decrypt path used at LLM call time.
 - `github/webhooks.py` verifies `X-Hub-Signature-256` on every incoming event.

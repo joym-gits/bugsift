@@ -84,6 +84,14 @@ export type Card = {
   proposed_labels?: string[] | null;
   suspected_files?: SuspectedFile[] | null;
   duplicates?: DuplicateCandidate[] | null;
+  reproduction_verdict?:
+    | "reproduced"
+    | "not_reproduced"
+    | "insufficient_info"
+    | "unsupported_language"
+    | "sandbox_error"
+    | null;
+  reproduction_log?: string | null;
   final_comment?: string | null;
   created_at: string;
 };
