@@ -68,7 +68,11 @@ deployment. This keeps secrets local.
 3. **Homepage URL:** `http://localhost:8080` for local testing; your public
    URL otherwise.
 4. **Callback URL:** `http://localhost:8080/api/auth/github/callback`.
-5. **Webhook URL:** `http://localhost:8080/api/webhooks/github`. For a local
+5. **Setup URL (optional, recommended):**
+   `http://localhost:8080/api/github/install/callback`. Toggle **Redirect on
+   update** off. This is where GitHub sends the user after they install the
+   App; bugsift uses it to link the installation to the logged-in account.
+6. **Webhook URL:** `http://localhost:8080/api/webhooks/github`. For a local
    install you will need to expose this publicly (see §4.4).
 6. **Webhook secret:** generate a random 48-byte token and paste it in; save
    the same value to `.env` as `GITHUB_APP_WEBHOOK_SECRET`.

@@ -11,7 +11,16 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from bugsift.api.deps import get_session
 from bugsift.api.main import create_app
 from bugsift.config import get_settings
-from bugsift.db.models import Base, User, UserApiKey
+from bugsift.db.models import (
+    Base,
+    Installation,
+    LLMUsage,
+    Repo,
+    RepoConfig,
+    TriageCard,
+    User,
+    UserApiKey,
+)
 from bugsift.security import crypto
 
 TEST_DB_URL = "sqlite+aiosqlite:///:memory:"
@@ -39,7 +48,18 @@ async def db_engine() -> AsyncIterator:
     """
     engine = create_async_engine(TEST_DB_URL, future=True)
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all, tables=[User.__table__, UserApiKey.__table__])
+        await conn.run_sync(
+            Base.metadata.create_all,
+            tables=[
+                User.__table__,
+                UserApiKey.__table__,
+                Installation.__table__,
+                Repo.__table__,
+                RepoConfig.__table__,
+                TriageCard.__table__,
+                LLMUsage.__table__,
+            ],
+        )
     yield engine
     await engine.dispose()
 

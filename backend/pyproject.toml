@@ -39,6 +39,7 @@ dev = [
   "mypy>=1.9",
   "aiosqlite>=0.20",
   "respx>=0.21",
+  "fakeredis>=2.21",
 ]
 
 [tool.setuptools.packages.find]

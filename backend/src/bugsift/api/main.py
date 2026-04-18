@@ -6,7 +6,11 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from bugsift import __version__
 from bugsift.api.auth import router as auth_router
+from bugsift.api.cards import router as cards_router
+from bugsift.api.github import router as github_router
 from bugsift.api.keys import router as keys_router
+from bugsift.api.repos import router as repos_router
+from bugsift.api.webhooks import router as webhooks_router
 from bugsift.config import get_settings
 
 
@@ -45,6 +49,10 @@ def create_app() -> FastAPI:
 
     app.include_router(auth_router)
     app.include_router(keys_router)
+    app.include_router(webhooks_router)
+    app.include_router(github_router)
+    app.include_router(cards_router)
+    app.include_router(repos_router)
 
     return app
 

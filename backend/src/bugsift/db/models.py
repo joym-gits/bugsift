@@ -17,8 +17,9 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+from bugsift.db.types import JSONB
 
 EMBEDDING_DIM = 1536
 
@@ -62,11 +63,13 @@ class Installation(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     github_installation_id: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False, index=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     installed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     suspended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    user: Mapped[User] = relationship(back_populates="installations")
+    user: Mapped[User | None] = relationship(back_populates="installations")
     repos: Mapped[list[Repo]] = relationship(back_populates="installation", cascade="all, delete-orphan")
 
 

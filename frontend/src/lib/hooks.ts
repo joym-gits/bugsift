@@ -57,3 +57,37 @@ export function useDeleteKey() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["keys"] }),
   });
 }
+
+export type Card = {
+  id: number;
+  repo_full_name: string;
+  issue_number: number;
+  status: string;
+  classification: string | null;
+  created_at: string;
+};
+
+export type Repo = {
+  id: number;
+  full_name: string;
+  default_branch: string;
+  primary_language: string | null;
+  indexing_status: string;
+  indexed_at: string | null;
+};
+
+export function useCards(enabled: boolean) {
+  return useQuery<Card[]>({
+    queryKey: ["cards"],
+    queryFn: () => apiFetch<Card[]>("/cards"),
+    enabled,
+  });
+}
+
+export function useRepos(enabled: boolean) {
+  return useQuery<Repo[]>({
+    queryKey: ["repos"],
+    queryFn: () => apiFetch<Repo[]>("/repos"),
+    enabled,
+  });
+}

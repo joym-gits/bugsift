@@ -27,8 +27,12 @@ class Settings(BaseSettings):
     )
     redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
 
+    github_app_id: str = Field(default="", alias="GITHUB_APP_ID")
     github_app_client_id: str = Field(default="", alias="GITHUB_APP_CLIENT_ID")
     github_app_client_secret: str = Field(default="", alias="GITHUB_APP_CLIENT_SECRET")
+    github_app_webhook_secret: str = Field(default="", alias="GITHUB_APP_WEBHOOK_SECRET")
+    github_app_private_key: str = Field(default="", alias="GITHUB_APP_PRIVATE_KEY")
+    github_app_private_key_path: str = Field(default="", alias="GITHUB_APP_PRIVATE_KEY_PATH")
 
     @property
     def oauth_configured(self) -> bool:
