@@ -22,6 +22,7 @@ from bugsift.db.session import SessionLocal
 from bugsift.llm.factory import get_provider_for_user
 from bugsift.retrieval.embedding import EmbeddingUnavailable, get_embedder_for_repo
 from bugsift.security import crypto
+from bugsift.usage import budget_status_for_repo
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +122,10 @@ async def _process_issue_opened(payload: dict[str, Any]) -> None:
             logger.info("dedup disabled for %s: %s", repo.full_name, e)
 
         reproduce_languages = _reproduce_languages_from_config(config)
+        state.monthly_budget_usd = float(config.monthly_budget_usd) if config else 10.0
+        budget = await budget_status_for_repo(
+            session, repo.id, state.monthly_budget_usd
+        )
 
         try:
             state = await orchestrator.run(
@@ -130,6 +135,7 @@ async def _process_issue_opened(payload: dict[str, Any]) -> None:
                 embed_provider=embed_provider,
                 embedding_dim=embedding_dim,
                 reproduce_languages=reproduce_languages,
+                budget_ok=not budget.is_exhausted,
             )
         except Exception:
             logger.exception(

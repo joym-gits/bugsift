@@ -37,6 +37,7 @@ async def run(
     embed_provider: _Embedder | None = None,
     embedding_dim: int | None = None,
     reproduce_languages: set[str] | None = None,
+    budget_ok: bool = True,
 ) -> TriageState:
     if state.enabled_steps.get("classify", True):
         state = await classify_step.run(state, provider)
@@ -45,7 +46,18 @@ async def run(
             await _draft_if_possible(state, provider)
             return state
 
-    if session is not None and state.enabled_steps.get("dedup", True):
+    # Expensive steps are gated on budget. When the monthly cap is reached,
+    # classify + comment still run (cheap) so the maintainer gets a card,
+    # but dedup / retrieval / reproduction are skipped and the card is
+    # flagged so the UI can surface the degradation.
+    if not budget_ok:
+        logger.info(
+            "budget exhausted for repo_id=%s; skipping expensive steps",
+            state.repo_id,
+        )
+        state.budget_limited = True
+
+    if budget_ok and session is not None and state.enabled_steps.get("dedup", True):
         state = await dedup_step.run(
             state,
             session=session,
@@ -57,7 +69,7 @@ async def run(
             # Dedup confirmed a duplicate and already populated draft_comment.
             return state
 
-    if session is not None and state.enabled_steps.get("retrieval", True):
+    if budget_ok and session is not None and state.enabled_steps.get("retrieval", True):
         state = await retrieval_step.run(
             state,
             session=session,
@@ -66,7 +78,7 @@ async def run(
             llm_provider=provider,
         )
 
-    if state.enabled_steps.get("reproduction", True):
+    if budget_ok and state.enabled_steps.get("reproduction", True):
         state = await reproduction_step.run(
             state, provider, allowed_languages=reproduce_languages
         )

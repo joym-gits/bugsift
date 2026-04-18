@@ -61,6 +61,7 @@ class TriageState:
     auto_actions: dict[str, bool] = field(default_factory=dict)
     mode: Mode = "dry-run"
     enabled_steps: dict[str, bool] = field(default_factory=dict)
+    monthly_budget_usd: float = 10.0
 
     # --- step outputs ---
     classification: Classification | None = None

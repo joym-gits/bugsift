@@ -53,6 +53,7 @@ class CardResponse(BaseModel):
     duplicates: list[DuplicateOut] | None = None
     reproduction_verdict: str | None = None
     reproduction_log: str | None = None
+    budget_limited: bool = False
     final_comment: str | None = None
     created_at: datetime
 
@@ -209,6 +210,7 @@ def _card_response(
         duplicates=duplicates,
         reproduction_verdict=card.reproduction_verdict,
         reproduction_log=card.reproduction_log,
+        budget_limited=bool(card.budget_limited),
         final_comment=card.final_comment,
         created_at=card.created_at,
     )

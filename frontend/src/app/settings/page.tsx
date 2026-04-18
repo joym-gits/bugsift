@@ -13,6 +13,7 @@ import {
   useDeleteKey,
   useKeys,
   useMe,
+  useMonthlyUsage,
   useTestKey,
 } from "@/lib/hooks";
 
@@ -29,6 +30,7 @@ export default function SettingsPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const testKey = useTestKey();
   const [testResults, setTestResults] = useState<Record<number, TestKeyResult>>({});
+  const usage = useMonthlyUsage(Boolean(me.data));
 
   if (me.isLoading) {
     return (
@@ -77,6 +79,62 @@ export default function SettingsPage() {
           at rest with Fernet and never returned in plaintext.
         </p>
       </header>
+
+      <section className="rounded-lg border bg-card p-6 shadow-sm">
+        <h2 className="text-lg font-medium">Spend this month</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Monthly budgets are per-repo and reset at UTC month start. When a repo
+          exhausts its budget, classify + comment still run but dedup, retrieval,
+          and reproduction are skipped until next month.
+        </p>
+        {usage.isLoading ? (
+          <p className="mt-3 text-sm text-muted-foreground">loading…</p>
+        ) : usage.data && usage.data.repos.length > 0 ? (
+          <div className="mt-4 space-y-2">
+            <div className="text-sm">
+              Total spent:{" "}
+              <strong>${usage.data.total_spent_usd.toFixed(4)}</strong> since{" "}
+              {new Date(usage.data.month_start_utc).toLocaleDateString(undefined, {
+                month: "long",
+                year: "numeric",
+              })}
+            </div>
+            <ul className="divide-y">
+              {usage.data.repos.map((r) => {
+                const pct =
+                  r.monthly_budget_usd > 0
+                    ? Math.min(100, (r.spent_usd / r.monthly_budget_usd) * 100)
+                    : 0;
+                return (
+                  <li key={r.repo_id} className="flex items-center justify-between gap-4 py-2 text-sm">
+                    <div className="min-w-0">
+                      <div className="truncate font-medium">{r.repo_full_name}</div>
+                      <div className="h-1.5 w-48 overflow-hidden rounded-full bg-muted">
+                        <div
+                          className={`h-full ${r.is_exhausted ? "bg-destructive" : "bg-primary"}`}
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                    </div>
+                    <div className="shrink-0 text-xs text-muted-foreground">
+                      ${r.spent_usd.toFixed(4)} / ${r.monthly_budget_usd.toFixed(2)}
+                      {r.is_exhausted && (
+                        <span className="ml-2 rounded-full border border-destructive/40 bg-destructive/10 px-2 py-0.5 text-[10px] font-medium text-destructive">
+                          exhausted
+                        </span>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ) : (
+          <p className="mt-3 text-sm text-muted-foreground">
+            No repos installed yet, or no LLM calls have been made this month.
+          </p>
+        )}
+      </section>
 
       <section className="rounded-lg border bg-card p-6 shadow-sm">
         <h2 className="text-lg font-medium">Add an LLM API key</h2>

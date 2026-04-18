@@ -43,6 +43,12 @@ export function TriageCard({ card }: { card: Card }) {
         </time>
       </header>
 
+      {card.budget_limited && (
+        <div className="mt-2 inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+          budget exhausted · expensive steps skipped
+        </div>
+      )}
+
       {card.rationale && (
         <p className="mt-3 text-xs text-muted-foreground">{card.rationale}</p>
       )}

@@ -92,9 +92,33 @@ export type Card = {
     | "sandbox_error"
     | null;
   reproduction_log?: string | null;
+  budget_limited?: boolean;
   final_comment?: string | null;
   created_at: string;
 };
+
+export type RepoUsage = {
+  repo_id: number;
+  repo_full_name: string;
+  monthly_budget_usd: number;
+  spent_usd: number;
+  remaining_usd: number;
+  is_exhausted: boolean;
+};
+
+export type MonthlyUsage = {
+  month_start_utc: string;
+  total_spent_usd: number;
+  repos: RepoUsage[];
+};
+
+export function useMonthlyUsage(enabled: boolean) {
+  return useQuery<MonthlyUsage>({
+    queryKey: ["usage", "this-month"],
+    queryFn: () => apiFetch<MonthlyUsage>("/usage/this-month"),
+    enabled,
+  });
+}
 
 export type Repo = {
   id: number;
