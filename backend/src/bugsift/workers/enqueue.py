@@ -16,6 +16,7 @@ from bugsift.workers import analyze as analyze_jobs
 from bugsift.workers import backfill as backfill_jobs
 from bugsift.workers import feedback_triage as feedback_triage_jobs
 from bugsift.workers import indexing as indexing_jobs
+from bugsift.workers import slack as slack_jobs
 from bugsift.workers import triage as triage_jobs
 
 
@@ -67,3 +68,11 @@ def enqueue_analyze_feedback_app(feedback_app_id: int) -> None:
     _queue("indexing").enqueue(
         analyze_jobs.analyze_for_app, feedback_app_id, job_timeout=1800
     )
+
+
+def enqueue_slack_notification(card_id: int, event: str) -> None:
+    """Fan-out a card event to every matching Slack destination.
+
+    Goes through the ``default`` queue so slow Slack calls don't back
+    up triage. The worker itself decides which destinations to hit."""
+    _queue("default").enqueue(slack_jobs.notify_card_event, card_id, event)

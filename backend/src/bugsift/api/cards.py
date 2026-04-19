@@ -294,6 +294,13 @@ async def approve_card(
     card.decided_by_user_id = user.id
     await session.commit()
     await session.refresh(card)
+    try:
+        enqueue_jobs.enqueue_slack_notification(card.id, "approved")
+    except Exception:
+        logger.exception(
+            "slack: enqueue failed for card_id=%s after approve; continuing",
+            card.id,
+        )
     return _card_response(card, repo.full_name, repo.default_branch)
 
 

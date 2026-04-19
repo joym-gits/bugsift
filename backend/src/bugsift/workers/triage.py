@@ -148,6 +148,22 @@ async def _process_issue_opened(payload: dict[str, Any]) -> None:
         _record_llm_usage(session, state, card_id=card.id)
         await session.commit()
 
+        _fire_slack_events(card, state)
+
+
+def _fire_slack_events(card, state) -> None:
+    """Enqueue slack notifications per card event. Safe to call on every
+    triage run — the worker fans out to destinations and applies per-
+    destination event filters."""
+    from bugsift.workers import enqueue as enqueue_jobs
+
+    try:
+        enqueue_jobs.enqueue_slack_notification(card.id, "new_card")
+        if state.regression_suspects:
+            enqueue_jobs.enqueue_slack_notification(card.id, "regression")
+    except Exception:
+        logger.exception("slack: enqueue failed for card_id=%s; continuing", card.id)
+
 
 def _reproduce_languages_from_config(config: RepoConfig | None) -> set[str] | None:
     """RepoConfig stores reproduce_languages as JSON. Accept either a list

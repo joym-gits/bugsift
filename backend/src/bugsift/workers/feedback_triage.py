@@ -211,6 +211,22 @@ async def _process_feedback_report(report_id: int) -> None:
         _record_llm_usage(session, state, card_id=card.id)
         await session.commit()
 
+        _fire_slack_events(card, state)
+
+
+def _fire_slack_events(card, state) -> None:
+    """Mirror of :func:`bugsift.workers.triage._fire_slack_events` for
+    the feedback pipeline. Dedup merges (where we attached a report to
+    an existing card) don't reach here — they return before card write."""
+    from bugsift.workers import enqueue as enqueue_jobs
+
+    try:
+        enqueue_jobs.enqueue_slack_notification(card.id, "new_card")
+        if state.regression_suspects:
+            enqueue_jobs.enqueue_slack_notification(card.id, "regression")
+    except Exception:
+        logger.exception("slack: enqueue failed for card_id=%s; continuing", card.id)
+
 
 def _bare_state(report: FeedbackReport, repo: Repo) -> TriageState:
     return ingest_feedback.from_feedback_report(

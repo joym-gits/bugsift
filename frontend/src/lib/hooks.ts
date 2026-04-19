@@ -199,6 +199,89 @@ export function useRepos(enabled: boolean) {
   });
 }
 
+export type SlackEvents = {
+  new_card: boolean;
+  approved: boolean;
+  regression: boolean;
+};
+
+export type SlackDestination = {
+  id: number;
+  name: string;
+  channel_hint: string | null;
+  webhook_hint: string;
+  events: SlackEvents;
+  created_at: string;
+};
+
+export function useSlackDestinations(enabled: boolean) {
+  return useQuery<SlackDestination[]>({
+    queryKey: ["slack-destinations"],
+    queryFn: () => apiFetch<SlackDestination[]>("/slack/destinations"),
+    enabled,
+  });
+}
+
+export function useCreateSlackDestination() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: {
+      name: string;
+      webhook_url: string;
+      channel_hint?: string | null;
+      events?: Partial<SlackEvents>;
+    }) =>
+      apiFetch<SlackDestination>("/slack/destinations", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["slack-destinations"] }),
+  });
+}
+
+export function useUpdateSlackDestination() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: {
+      id: number;
+      body: Partial<{
+        name: string;
+        channel_hint: string | null;
+        events: Partial<SlackEvents>;
+      }>;
+    }) =>
+      apiFetch<SlackDestination>(`/slack/destinations/${args.id}`, {
+        method: "PATCH",
+        body: JSON.stringify(args.body),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["slack-destinations"] }),
+  });
+}
+
+export function useDeleteSlackDestination() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) =>
+      apiFetch<void>(`/slack/destinations/${id}`, { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["slack-destinations"] }),
+  });
+}
+
+export type SlackTestResult = {
+  ok: boolean;
+  status_code: number | null;
+  detail: string | null;
+};
+
+export function useTestSlackDestination() {
+  return useMutation({
+    mutationFn: (id: number) =>
+      apiFetch<SlackTestResult>(`/slack/destinations/${id}/test`, {
+        method: "POST",
+      }),
+  });
+}
+
 export type RepoBranch = { name: string; is_default: boolean };
 
 export function useRepoBranches(repoId: number | null, enabled: boolean) {

@@ -362,6 +362,47 @@ class FeedbackReport(Base):
     )
 
 
+class SlackDestination(Base):
+    """A Slack Incoming Webhook destination the operator connected.
+
+    Incoming Webhooks are channel-scoped URLs created by the user in
+    their workspace (``https://api.slack.com/apps`` → create app →
+    Incoming Webhooks → Activate → Add New Webhook to Workspace). No
+    OAuth app registration required on our side for v1; interactive
+    buttons are deferred until we have a public bugsift URL + Slack App
+    signing secret.
+
+    ``events_json`` is a flag set describing which card-lifecycle events
+    trigger a message. Empty => notify on all. We default to the high-
+    signal subset on create: new card + regression hit, not every skip.
+    """
+
+    __tablename__ = "slack_destinations"
+    __table_args__ = (
+        UniqueConstraint("user_id", "name", name="uq_slack_dest_name"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    webhook_url_encrypted: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    # Human-readable hints so the settings UI can show which channel
+    # the webhook belongs to without us having to make another Slack
+    # API call. Slack's webhook response includes "channel" on the
+    # configuration page; we capture what the user pasted or leave blank.
+    channel_hint: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    # Flag set. Missing keys read as False. See bugsift.slack.notifier
+    # for the canonical event names.
+    events_json: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class GithubAppCredentials(Base):
     """Singleton (id == 1) — the operator's registered bugsift GitHub App.
 
