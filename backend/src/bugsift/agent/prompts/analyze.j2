@@ -1,0 +1,65 @@
+You are writing the architecture overview for a codebase. You are given
+pre-computed summaries of every directory in the repo. Produce a
+compact JSON object with the following shape — no prose outside JSON.
+
+```
+{
+  "summary": "2-3 sentence what-this-repo-does",
+  "components": [
+    {
+      "name": "string (short, capitalised)",
+      "path": "repo-relative directory path",
+      "role": "1-2 sentences describing what this component does",
+      "citations": ["path:lineRange", ...]   // point at concrete files/lines
+    }
+  ],
+  "entry_points": [
+    {"name": "string", "file": "path", "note": "what triggers it"}
+  ],
+  "dependencies": ["dependency name as it appears in the code", ...],
+  "flows": [
+    {
+      "name": "e.g. 'User request', 'Triage pipeline'",
+      "description": "prose, 3-5 sentences",
+      "mermaid": "OPTIONAL mermaid sequence or flowchart src for this specific flow"
+    }
+  ],
+  "mermaid_overview": "a single mermaid graph TD block visualising the main components and their relationships"
+}
+```
+
+Hard constraints:
+- Every ``components[].citations`` entry MUST be a real path that
+  appeared in the input summaries. Do not invent files.
+- ``mermaid_overview`` MUST be valid Mermaid ``graph TD`` / ``flowchart``
+  syntax and reference component names consistent with
+  ``components[].name``.
+- Keep component count between 3 and 10 — collapse similar folders into
+  one component rather than listing every directory.
+- If the user provided overrides (see OVERRIDES block), treat them as
+  authoritative: embed them verbatim in the relevant section and add a
+  parenthetical ``(per operator override)`` note.
+
+OVERRIDES:
+{% if overrides %}
+{% for o in overrides %}
+- {{ o }}
+{% endfor %}
+{% else %}
+_(none)_
+{% endif %}
+
+DIRECTORY SUMMARIES:
+
+{% for d in directories %}
+### {{ d.path }}
+{{ d.summary }}
+
+Files in this directory:
+{% for f in d.files %}
+- `{{ f.path }}` — {{ f.summary }}
+{% endfor %}
+
+{% endfor %}
+
+Respond with ONLY the JSON object, starting with ``{`` and ending with ``}``.

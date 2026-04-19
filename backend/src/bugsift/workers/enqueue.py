@@ -12,6 +12,7 @@ from redis import Redis
 from rq import Queue
 
 from bugsift.config import get_settings
+from bugsift.workers import analyze as analyze_jobs
 from bugsift.workers import backfill as backfill_jobs
 from bugsift.workers import feedback_triage as feedback_triage_jobs
 from bugsift.workers import indexing as indexing_jobs
@@ -57,3 +58,12 @@ def enqueue_feedback_triage(report_id: int) -> None:
     """Kick a widget-sourced feedback report through the triage pipeline.
     Same ``triage`` queue as GitHub issues so the worker sees one stream."""
     _queue("triage").enqueue(feedback_triage_jobs.process_feedback_report, report_id)
+
+
+def enqueue_analyze_feedback_app(feedback_app_id: int) -> None:
+    """Kick a full repo analysis for the repo behind a feedback app.
+    Uses the ``indexing`` queue — the job is cpu/IO-heavy and we don't
+    want it blocking triage throughput."""
+    _queue("indexing").enqueue(
+        analyze_jobs.analyze_for_app, feedback_app_id, job_timeout=1800
+    )

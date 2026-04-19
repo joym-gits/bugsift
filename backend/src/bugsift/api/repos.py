@@ -11,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bugsift.api.deps import get_current_user, get_session
 from bugsift.api.webhooks import _fetch_installation_repos, _upsert_repos
 from bugsift.db.models import Installation, Repo, User
+from bugsift.github import app as gh_app
+from bugsift.github import config as app_config
 from bugsift.workers import enqueue as enqueue_jobs
 
 logger = logging.getLogger(__name__)
@@ -103,6 +105,95 @@ async def hydrate_repos(
     return HydrateResponse(
         added=added, skipped=skipped, installations=len(installations)
     )
+
+
+class BranchOut(BaseModel):
+    name: str
+    is_default: bool
+
+
+@router.get("/{repo_id}/branches", response_model=list[BranchOut])
+async def list_repo_branches(
+    repo_id: int,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> list[BranchOut]:
+    """List branches for ``repo_id`` straight from GitHub.
+
+    Keeps the branch picker in the feedback-app form honest — a user
+    could have pushed a ``develop`` branch five minutes ago and we don't
+    want to store stale state. Paginates GitHub's ``/branches`` endpoint
+    with a safety cap; default branch (per the stored Repo row) is
+    surfaced as ``is_default`` so the form can preselect it.
+    """
+    import httpx
+
+    stmt = (
+        select(Repo, Installation)
+        .join(Installation, Repo.installation_id == Installation.id)
+        .where(Repo.id == repo_id, Installation.user_id == user.id)
+    )
+    row = (await session.execute(stmt)).first()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="repo not found")
+    repo, install = row
+
+    cfg = await app_config.load_app_config(session)
+    if cfg is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="GitHub App is not configured",
+        )
+
+    try:
+        token = await gh_app.get_installation_token(
+            install.github_installation_id,
+            app_id=cfg.app_id,
+            private_key_pem=cfg.private_key_pem,
+        )
+    except Exception as e:
+        logger.warning("branches: token mint failed repo_id=%s: %s", repo_id, e)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"could not mint installation token: {e}",
+        ) from e
+
+    names: list[str] = []
+    async with httpx.AsyncClient() as client:
+        page = 1
+        while page <= 10:  # safety cap: 10 pages × 100 = 1000 branches
+            response = await client.get(
+                f"https://api.github.com/repos/{repo.full_name}/branches",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+                params={"per_page": 100, "page": page},
+                timeout=20.0,
+            )
+            if response.status_code != 200:
+                logger.warning(
+                    "branches: GitHub returned %s for %s (page %s)",
+                    response.status_code,
+                    repo.full_name,
+                    page,
+                )
+                break
+            batch = response.json()
+            if not isinstance(batch, list) or not batch:
+                break
+            names.extend(str(b.get("name")) for b in batch if b.get("name"))
+            if len(batch) < 100:
+                break
+            page += 1
+
+    default_branch = (repo.default_branch or "").strip()
+    # Preserve API order (GitHub lists alphabetically by default) but
+    # float the default branch to the top so the form picks the right
+    # initial value.
+    sorted_names = sorted(set(names), key=lambda n: (n != default_branch, n))
+    return [BranchOut(name=n, is_default=(n == default_branch)) for n in sorted_names]
 
 
 class BackfillResponse(BaseModel):

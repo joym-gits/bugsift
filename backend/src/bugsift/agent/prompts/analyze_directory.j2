@@ -1,0 +1,18 @@
+You are summarising the role of a directory in a codebase.
+
+Given the one-line summaries of each file in the directory (below), write
+a 2–3 sentence paragraph describing what this directory as a whole is
+for and how the files relate.
+
+Do NOT quote code. Do NOT invent components that aren't in the file
+summaries. If the directory is a single-purpose module, one sentence is
+fine.
+
+Directory: `{{ directory_path }}`
+
+Files:
+{% for f in files %}
+- `{{ f.path }}` — {{ f.summary }}
+{% endfor %}
+
+Respond with only the summary paragraph.

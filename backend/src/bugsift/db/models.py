@@ -213,7 +213,9 @@ class FeedbackApp(Base):
     tag) and a default GitHub repo where approved feedback becomes issues.
     The ``allowed_origins`` list narrows which browser origins may POST to
     the ingest endpoint — ``None`` means accept any origin (useful for
-    mobile / non-browser callers).
+    mobile / non-browser callers). ``target_branch`` overrides the repo's
+    default branch for analysis + future reproduction runs tied to this
+    app; ``None`` means "use whatever the repo's default is".
     """
 
     __tablename__ = "feedback_apps"
@@ -228,8 +230,55 @@ class FeedbackApp(Base):
     default_repo_id: Mapped[int | None] = mapped_column(
         ForeignKey("repos.id", ondelete="SET NULL"), nullable=True
     )
+    target_branch: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class RepoAnalysis(Base):
+    """Hierarchical LLM analysis of a (repo, branch).
+
+    Produced by :mod:`bugsift.workers.analyze` and displayed on the
+    feedback-app detail page. One row per ``(repo_id, branch)`` — if
+    multiple feedback apps target the same branch of the same repo
+    they share this analysis. Operator corrections (free-form chat
+    edits) are stored in ``overrides_json`` and re-applied when the
+    worker regenerates.
+
+    Status machine:
+    - ``pending`` — job queued, worker hasn't picked it up yet
+    - ``running`` — mid-analysis
+    - ``ready`` — ``structured_json`` + ``mermaid_src`` populated
+    - ``failed`` — ``error_detail`` carries the reason
+    """
+
+    __tablename__ = "repo_analyses"
+    __table_args__ = (
+        UniqueConstraint("repo_id", "branch", name="uq_repo_analysis_branch"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    repo_id: Mapped[int] = mapped_column(
+        ForeignKey("repos.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    branch: Mapped[str] = mapped_column(String(255), nullable=False)
+    commit_sha: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="pending", index=True
+    )
+    structured_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    mermaid_src: Mapped[str | None] = mapped_column(Text, nullable=True)
+    overrides_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    error_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    generated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
     )
 
 

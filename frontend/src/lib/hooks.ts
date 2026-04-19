@@ -186,6 +186,19 @@ export function useRepos(enabled: boolean) {
   });
 }
 
+export type RepoBranch = { name: string; is_default: boolean };
+
+export function useRepoBranches(repoId: number | null, enabled: boolean) {
+  return useQuery<RepoBranch[]>({
+    queryKey: ["repo-branches", repoId],
+    queryFn: () => apiFetch<RepoBranch[]>(`/repos/${repoId}/branches`),
+    enabled: enabled && repoId !== null,
+    // Branches don't change often; keep them for a few minutes per repo
+    // so switching back and forth in the form doesn't re-hit GitHub.
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
 export type TestKeyResult = {
   ok: boolean;
   provider: ApiKey["provider"];
@@ -309,6 +322,8 @@ export type FeedbackApp = {
   public_key: string;
   default_repo_id: number | null;
   default_repo_full_name: string | null;
+  default_repo_branch: string | null;
+  target_branch: string | null;
   allowed_origins: string[] | null;
   created_at: string;
   report_count: number;
@@ -322,6 +337,18 @@ export function useFeedbackApps(enabled: boolean) {
   });
 }
 
+export function useFeedbackApp(id: number | null, enabled: boolean) {
+  return useQuery<FeedbackApp | null>({
+    queryKey: ["feedback-app", id],
+    queryFn: async () => {
+      if (id === null) return null;
+      const all = await apiFetch<FeedbackApp[]>("/feedback/apps");
+      return all.find((a) => a.id === id) ?? null;
+    },
+    enabled: enabled && id !== null,
+  });
+}
+
 export function useCreateFeedbackApp() {
   const qc = useQueryClient();
   return useMutation({
@@ -329,6 +356,7 @@ export function useCreateFeedbackApp() {
       name: string;
       default_repo_id?: number | null;
       allowed_origins?: string[] | null;
+      target_branch?: string | null;
     }) =>
       apiFetch<FeedbackApp>("/feedback/apps", {
         method: "POST",
@@ -338,12 +366,96 @@ export function useCreateFeedbackApp() {
   });
 }
 
+export function useUpdateFeedbackApp() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: {
+      id: number;
+      body: Partial<{
+        name: string;
+        default_repo_id: number | null;
+        allowed_origins: string[] | null;
+        target_branch: string | null;
+      }>;
+    }) =>
+      apiFetch<FeedbackApp>(`/feedback/apps/${args.id}`, {
+        method: "PATCH",
+        body: JSON.stringify(args.body),
+      }),
+    onSuccess: (_data, args) => {
+      qc.invalidateQueries({ queryKey: ["feedback-apps"] });
+      qc.invalidateQueries({ queryKey: ["feedback-app", args.id] });
+    },
+  });
+}
+
 export function useDeleteFeedbackApp() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: number) =>
       apiFetch<void>(`/feedback/apps/${id}`, { method: "DELETE" }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["feedback-apps"] }),
+  });
+}
+
+export type RepoAnalysis = {
+  id: number;
+  repo_id: number;
+  branch: string;
+  status: "pending" | "running" | "ready" | "failed";
+  structured_json: {
+    summary?: string;
+    components?: {
+      name: string;
+      path: string;
+      role: string;
+      citations?: string[];
+    }[];
+    entry_points?: { name: string; file: string; note?: string }[];
+    dependencies?: string[];
+    flows?: { name: string; description: string; mermaid?: string }[];
+    mermaid_overview?: string;
+  } | null;
+  mermaid_src: string | null;
+  overrides: string[];
+  error_detail: string | null;
+  generated_at: string | null;
+  updated_at: string;
+};
+
+export function useAnalysis(
+  appId: number | null,
+  enabled: boolean,
+  pollMs: number | false = false,
+) {
+  return useQuery<RepoAnalysis | null>({
+    queryKey: ["analysis", appId],
+    queryFn: () => apiFetch<RepoAnalysis | null>(`/feedback/apps/${appId}/analysis`),
+    enabled: enabled && appId !== null,
+    refetchInterval: pollMs,
+  });
+}
+
+export function useKickAnalysis() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (appId: number) =>
+      apiFetch<RepoAnalysis>(`/feedback/apps/${appId}/analyze`, { method: "POST" }),
+    onSuccess: (_data, appId) =>
+      qc.invalidateQueries({ queryKey: ["analysis", appId] }),
+  });
+}
+
+export function useAddCorrection() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { appId: number; note: string }) =>
+      apiFetch<RepoAnalysis>(`/feedback/apps/${args.appId}/analysis/corrections`, {
+        method: "POST",
+        body: JSON.stringify({ note: args.note }),
+      }),
+    onSuccess: (_data, args) =>
+      qc.invalidateQueries({ queryKey: ["analysis", args.appId] }),
   });
 }
 

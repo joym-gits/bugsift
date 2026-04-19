@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
-import { Check, Copy, MessageSquareWarning, Trash2 } from "lucide-react";
+import { ArrowRight, Check, Copy, MessageSquareWarning, Trash2 } from "lucide-react";
 
 import { AppShell, EmptyState, PageHeader, Skeleton } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
@@ -14,6 +15,7 @@ import {
   useDeleteFeedbackApp,
   useFeedbackApps,
   useMe,
+  useRepoBranches,
   useRepos,
 } from "@/lib/hooks";
 
@@ -65,13 +67,19 @@ export default function FeedbackAppsPage() {
 function CreateForm({
   repos,
 }: {
-  repos: { id: number; full_name: string }[];
+  repos: { id: number; full_name: string; default_branch: string }[];
 }) {
   const create = useCreateFeedbackApp();
   const [name, setName] = useState("");
   const [repoId, setRepoId] = useState<string>("");
+  const [branch, setBranch] = useState("");
   const [origins, setOrigins] = useState("");
   const [err, setErr] = useState<string | null>(null);
+
+  const selectedRepoNumId = repoId ? Number(repoId) : null;
+  const branches = useRepoBranches(selectedRepoNumId, selectedRepoNumId !== null);
+  const branchList = branches.data ?? [];
+  const selectedRepo = repos.find((r) => r.id === selectedRepoNumId);
 
   return (
     <section className="rounded-lg border bg-card p-6 shadow-sm">
@@ -94,6 +102,7 @@ function CreateForm({
             await create.mutateAsync({
               name: name.trim(),
               default_repo_id: repoId ? Number(repoId) : null,
+              target_branch: branch.trim() || null,
               allowed_origins: origins
                 .split(/[\s,]+/)
                 .map((s) => s.trim())
@@ -101,6 +110,7 @@ function CreateForm({
             });
             setName("");
             setRepoId("");
+            setBranch("");
             setOrigins("");
           } catch (e) {
             if (e instanceof ApiError) setErr(e.message);
@@ -123,7 +133,13 @@ function CreateForm({
           <select
             id="repo"
             value={repoId}
-            onChange={(e) => setRepoId(e.target.value)}
+            onChange={(e) => {
+              setRepoId(e.target.value);
+              // Reset the branch choice when the repo changes — the new
+              // repo has its own branch list and the old value is likely
+              // invalid.
+              setBranch("");
+            }}
             className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
           >
             <option value="">— choose a synced repo —</option>
@@ -132,6 +148,38 @@ function CreateForm({
                 {r.full_name}
               </option>
             ))}
+          </select>
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="branch">Target branch (optional)</Label>
+          <select
+            id="branch"
+            value={branch}
+            onChange={(e) => setBranch(e.target.value)}
+            disabled={!selectedRepoNumId || branches.isLoading}
+            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm disabled:opacity-60"
+          >
+            {!selectedRepoNumId ? (
+              <option value="">— pick a repo first —</option>
+            ) : branches.isLoading ? (
+              <option value="">loading branches…</option>
+            ) : branches.isError ? (
+              <option value="">could not load branches</option>
+            ) : branchList.length === 0 ? (
+              <option value="">no branches returned</option>
+            ) : (
+              <>
+                <option value="">
+                  default ({selectedRepo?.default_branch ?? "main"})
+                </option>
+                {branchList.map((b) => (
+                  <option key={b.name} value={b.name}>
+                    {b.name}
+                    {b.is_default ? " · default" : ""}
+                  </option>
+                ))}
+              </>
+            )}
           </select>
         </div>
         <div className="sm:col-span-2 space-y-1">
@@ -175,6 +223,10 @@ function AppCard({ app }: { app: FeedbackApp }) {
             {app.default_repo_full_name ? (
               <>
                 approved feedback → <span className="font-mono">{app.default_repo_full_name}</span>
+                {" @ "}
+                <span className="font-mono">
+                  {app.target_branch ?? app.default_repo_branch ?? "main"}
+                </span>
               </>
             ) : (
               <span>no default repo yet — approve will fail until you set one</span>
@@ -183,19 +235,28 @@ function AppCard({ app }: { app: FeedbackApp }) {
             {app.report_count} report{app.report_count === 1 ? "" : "s"}
           </div>
         </div>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => {
-            if (confirm(`Remove feedback app "${app.name}"? Existing reports stay in the DB.`)) {
-              del.mutate(app.id);
-            }
-          }}
-          disabled={del.isPending}
-        >
-          <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-          Remove
-        </Button>
+        <div className="flex shrink-0 items-center gap-2">
+          <Link
+            href={`/feedback/${app.id}`}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-input bg-background px-3 text-xs font-medium hover:bg-accent hover:text-accent-foreground"
+          >
+            Analysis
+            <ArrowRight className="h-3.5 w-3.5" />
+          </Link>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              if (confirm(`Remove feedback app "${app.name}"? Existing reports stay in the DB.`)) {
+                del.mutate(app.id);
+              }
+            }}
+            disabled={del.isPending}
+          >
+            <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+            Remove
+          </Button>
+        </div>
       </div>
 
       <div className="mt-4 space-y-3">

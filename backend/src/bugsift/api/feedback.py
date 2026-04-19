@@ -30,7 +30,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bugsift.api.deps import get_current_user, get_session
-from bugsift.db.models import FeedbackApp, FeedbackReport, Installation, Repo, User
+from bugsift.db.models import (
+    FeedbackApp,
+    FeedbackReport,
+    Installation,
+    Repo,
+    RepoAnalysis,
+    User,
+)
 from bugsift.github.rate_limit import _client as _redis_client
 from bugsift.workers import enqueue as enqueue_jobs
 
@@ -154,6 +161,14 @@ class CreateAppBody(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     default_repo_id: int | None = None
     allowed_origins: list[str] | None = Field(default=None, max_length=20)
+    target_branch: str | None = Field(default=None, max_length=255)
+
+
+class UpdateAppBody(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    default_repo_id: int | None = None
+    allowed_origins: list[str] | None = Field(default=None, max_length=20)
+    target_branch: str | None = Field(default=None, max_length=255)
 
 
 class FeedbackAppOut(BaseModel):
@@ -162,6 +177,8 @@ class FeedbackAppOut(BaseModel):
     public_key: str
     default_repo_id: int | None
     default_repo_full_name: str | None
+    default_repo_branch: str | None
+    target_branch: str | None
     allowed_origins: list[str] | None
     created_at: datetime
     report_count: int
@@ -188,11 +205,42 @@ async def create_feedback_app(
         public_key=_generate_public_key(),
         allowed_origins_json=cleaned_origins,
         default_repo_id=body.default_repo_id,
+        target_branch=(body.target_branch or "").strip() or None,
     )
     session.add(row)
     await session.commit()
     await session.refresh(row)
     logger.info("feedback app created id=%s user_id=%s", row.id, user.id)
+    return await _serialize(session, row)
+
+
+@router.patch("/feedback/apps/{app_id}", response_model=FeedbackAppOut)
+async def update_feedback_app(
+    app_id: int,
+    body: UpdateAppBody,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> FeedbackAppOut:
+    row = await session.get(FeedbackApp, app_id)
+    if row is None or row.user_id != user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="app not found")
+
+    if body.name is not None:
+        row.name = body.name.strip()
+    if body.default_repo_id is not None:
+        if not await _owns_repo(session, user.id, body.default_repo_id):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="default_repo_id is not a repo you own",
+            )
+        row.default_repo_id = body.default_repo_id
+    if body.allowed_origins is not None:
+        row.allowed_origins_json = _clean_origins(body.allowed_origins) or None
+    if body.target_branch is not None:
+        branch = body.target_branch.strip()
+        row.target_branch = branch or None
+    await session.commit()
+    await session.refresh(row)
     return await _serialize(session, row)
 
 
@@ -209,6 +257,164 @@ async def list_feedback_apps(
         )
     ).scalars().all()
     return [await _serialize(session, r) for r in rows]
+
+
+class AnalysisResponse(BaseModel):
+    id: int
+    repo_id: int
+    branch: str
+    status: str
+    structured_json: dict | None
+    mermaid_src: str | None
+    overrides: list[str]
+    error_detail: str | None
+    generated_at: datetime | None
+    updated_at: datetime
+
+
+class CorrectionBody(BaseModel):
+    note: str = Field(min_length=1, max_length=2000)
+
+
+@router.post(
+    "/feedback/apps/{app_id}/analyze",
+    response_model=AnalysisResponse,
+    status_code=202,
+)
+async def kick_feedback_app_analysis(
+    app_id: int,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> AnalysisResponse:
+    """Enqueue a full repo analysis for the repo behind this feedback app.
+
+    Idempotent: enqueuing while a previous analysis is still ``running``
+    returns the existing row so the dashboard can keep polling. The
+    worker overwrites the row when it finishes.
+    """
+    app = await session.get(FeedbackApp, app_id)
+    if app is None or app.user_id != user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="app not found")
+    if app.default_repo_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="set a default repo on the app before analysing",
+        )
+    repo = await session.get(Repo, app.default_repo_id)
+    if repo is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="repo not found")
+
+    branch = (app.target_branch or repo.default_branch or "main").strip()
+    analysis = (
+        await session.execute(
+            select(RepoAnalysis).where(
+                RepoAnalysis.repo_id == repo.id, RepoAnalysis.branch == branch
+            )
+        )
+    ).scalar_one_or_none()
+    if analysis is None:
+        analysis = RepoAnalysis(repo_id=repo.id, branch=branch, status="pending")
+        session.add(analysis)
+    else:
+        analysis.status = "pending"
+        analysis.error_detail = None
+    await session.commit()
+    await session.refresh(analysis)
+
+    enqueue_jobs.enqueue_analyze_feedback_app(app.id)
+    logger.info(
+        "analysis queued app_id=%s repo_id=%s branch=%s", app.id, repo.id, branch
+    )
+    return _serialize_analysis(analysis)
+
+
+@router.get("/feedback/apps/{app_id}/analysis", response_model=AnalysisResponse | None)
+async def get_feedback_app_analysis(
+    app_id: int,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> AnalysisResponse | None:
+    app = await session.get(FeedbackApp, app_id)
+    if app is None or app.user_id != user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="app not found")
+    if app.default_repo_id is None:
+        return None
+    repo = await session.get(Repo, app.default_repo_id)
+    if repo is None:
+        return None
+    branch = (app.target_branch or repo.default_branch or "main").strip()
+    analysis = (
+        await session.execute(
+            select(RepoAnalysis).where(
+                RepoAnalysis.repo_id == repo.id, RepoAnalysis.branch == branch
+            )
+        )
+    ).scalar_one_or_none()
+    if analysis is None:
+        return None
+    return _serialize_analysis(analysis)
+
+
+@router.post(
+    "/feedback/apps/{app_id}/analysis/corrections",
+    response_model=AnalysisResponse,
+)
+async def add_analysis_correction(
+    app_id: int,
+    body: CorrectionBody,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> AnalysisResponse:
+    """Append a human override to the current analysis.
+
+    Corrections are a list of free-form strings; the worker injects
+    them into the top-level synthesis prompt on the next regeneration
+    so the LLM has to respect them. This endpoint only records the
+    override — the caller should follow with a POST to ``/analyze`` to
+    actually regenerate.
+    """
+    app = await session.get(FeedbackApp, app_id)
+    if app is None or app.user_id != user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="app not found")
+    if app.default_repo_id is None:
+        raise HTTPException(status_code=400, detail="app has no default repo")
+    repo = await session.get(Repo, app.default_repo_id)
+    if repo is None:
+        raise HTTPException(status_code=404, detail="repo not found")
+    branch = (app.target_branch or repo.default_branch or "main").strip()
+    analysis = (
+        await session.execute(
+            select(RepoAnalysis).where(
+                RepoAnalysis.repo_id == repo.id, RepoAnalysis.branch == branch
+            )
+        )
+    ).scalar_one_or_none()
+    if analysis is None:
+        raise HTTPException(
+            status_code=400,
+            detail="run an analysis first — no current result to correct",
+        )
+    overrides = list(analysis.overrides_json or [])
+    overrides.append(body.note.strip())
+    analysis.overrides_json = overrides
+    await session.commit()
+    await session.refresh(analysis)
+    return _serialize_analysis(analysis)
+
+
+def _serialize_analysis(analysis: RepoAnalysis) -> AnalysisResponse:
+    return AnalysisResponse(
+        id=analysis.id,
+        repo_id=analysis.repo_id,
+        branch=analysis.branch,
+        status=analysis.status,
+        structured_json=analysis.structured_json,
+        mermaid_src=analysis.mermaid_src,
+        overrides=list(analysis.overrides_json or []),
+        error_detail=analysis.error_detail,
+        generated_at=analysis.generated_at,
+        updated_at=analysis.updated_at,
+    )
 
 
 @router.delete("/feedback/apps/{app_id}", status_code=204)
@@ -274,10 +480,12 @@ async def _owns_repo(session: AsyncSession, user_id: int, repo_id: int) -> bool:
 
 async def _serialize(session: AsyncSession, app: FeedbackApp) -> FeedbackAppOut:
     repo_full_name: str | None = None
+    repo_branch: str | None = None
     if app.default_repo_id is not None:
         repo = await session.get(Repo, app.default_repo_id)
         if repo is not None:
             repo_full_name = repo.full_name
+            repo_branch = repo.default_branch
     # Tiny count query; fine at this scale. If feedback_reports grows huge,
     # materialise a counter column on feedback_apps.
     from sqlalchemy import func as _f
@@ -293,6 +501,8 @@ async def _serialize(session: AsyncSession, app: FeedbackApp) -> FeedbackAppOut:
         public_key=app.public_key,
         default_repo_id=app.default_repo_id,
         default_repo_full_name=repo_full_name,
+        default_repo_branch=repo_branch,
+        target_branch=app.target_branch,
         allowed_origins=app.allowed_origins_json,
         created_at=app.created_at,
         report_count=int(count),
