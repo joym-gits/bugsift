@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { Inbox, GitBranch, Rocket, ArrowRight, RefreshCw } from "lucide-react";
 
 import { AppShell, EmptyState, PageHeader, Skeleton } from "@/components/AppShell";
@@ -20,7 +21,12 @@ import {
 export default function DashboardPage() {
   const me = useMe();
   const signedIn = Boolean(me.data);
-  const cards = useCards(signedIn, { status: "pending", limit: 50 });
+  const [severityFilter, setSeverityFilter] = useState<string>("");
+  const cards = useCards(signedIn, {
+    status: "pending",
+    limit: 50,
+    severity: severityFilter || undefined,
+  });
   const repos = useRepos(signedIn);
   const keys = useKeys(signedIn);
   // Public endpoint — call it even signed-out so we know whether to show
@@ -40,10 +46,12 @@ export default function DashboardPage() {
             title="Triage queue"
             description={
               cards.data
-                ? `${cards.data.length} card${cards.data.length === 1 ? "" : "s"} waiting on you`
+                ? `${cards.data.length} card${cards.data.length === 1 ? "" : "s"} waiting on you${severityFilter ? ` (${severityFilter})` : ""}`
                 : "loading…"
             }
           />
+
+          <SeverityFilter value={severityFilter} onChange={setSeverityFilter} />
 
           <OnboardingBanner
             appConfigured={appConfigured}
@@ -268,6 +276,45 @@ function SignedOutHero({ appConfigured }: { appConfigured: boolean }) {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function SeverityFilter({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  const options: { value: string; label: string }[] = [
+    { value: "", label: "All" },
+    { value: "blocker", label: "🚨 Blocker" },
+    { value: "high", label: "🔴 High" },
+    { value: "medium", label: "🟡 Medium" },
+    { value: "low", label: "⚪ Low" },
+  ];
+  return (
+    <div className="mb-4 flex items-center gap-1 text-xs">
+      <span className="mr-1 text-muted-foreground">Severity:</span>
+      {options.map((opt) => {
+        const active = value === opt.value;
+        return (
+          <button
+            key={opt.value || "all"}
+            type="button"
+            onClick={() => onChange(opt.value)}
+            className={
+              "rounded-full border px-2.5 py-1 transition-colors " +
+              (active
+                ? "border-primary bg-primary text-primary-foreground"
+                : "hover:bg-accent")
+            }
+          >
+            {opt.label}
+          </button>
+        );
+      })}
     </div>
   );
 }

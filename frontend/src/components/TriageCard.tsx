@@ -52,6 +52,7 @@ export function TriageCard({ card }: { card: Card }) {
             </span>
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+            {card.severity && <SeverityPill severity={card.severity} />}
             <span
               className={
                 "rounded-full border px-2 py-0.5 " +
@@ -450,6 +451,26 @@ function FeedbackReports({ cardId }: { cardId: number }) {
         ))}
       </ul>
     </details>
+  );
+}
+
+function SeverityPill({
+  severity,
+}: {
+  severity: NonNullable<Card["severity"]>;
+}) {
+  const cls: Record<NonNullable<Card["severity"]>, string> = {
+    blocker: "border-destructive/50 bg-destructive/10 text-destructive",
+    high: "border-red-500/40 bg-red-500/10 text-red-700",
+    medium: "border-amber-500/40 bg-amber-500/10 text-amber-700",
+    low: "border-border bg-muted/40 text-muted-foreground",
+  };
+  return (
+    <span
+      className={`rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${cls[severity]}`}
+    >
+      {severity}
+    </span>
   );
 }
 

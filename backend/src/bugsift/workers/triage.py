@@ -206,6 +206,7 @@ def _write_card(
         issue_number=state.issue_number,
         status="pending",
         classification=state.classification,
+        severity=state.severity,
         confidence=Decimal(f"{state.confidence:.3f}") if state.confidence is not None else None,
         rationale=state.rationale or flag_reason,
         duplicates_json=[d.__dict__ for d in state.duplicates] or None,

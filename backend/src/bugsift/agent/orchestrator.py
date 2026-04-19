@@ -14,6 +14,7 @@ from typing import Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from bugsift.agent.severity import compute_severity
 from bugsift.agent.state import TriageState
 from bugsift.agent.steps import classify as classify_step
 from bugsift.agent.steps import comment as comment_step
@@ -39,6 +40,7 @@ async def run(
     embedding_dim: int | None = None,
     reproduce_languages: set[str] | None = None,
     budget_ok: bool = True,
+    feedback_report_count: int = 0,
 ) -> TriageState:
     if state.enabled_steps.get("classify", True):
         state = await classify_step.run(state, provider)
@@ -96,6 +98,12 @@ async def run(
     # recent push actually caused the bug.
     if session is not None and state.suspected_files:
         state = await regression_step.run(state, session=session)
+
+    # Severity: deterministic from classification + repro + regression
+    # + user-report count. Computed last so every signal is present.
+    state.severity = compute_severity(
+        state, feedback_report_count=feedback_report_count
+    )
 
     state = await comment_step.run(state, provider)
     state.status = "complete"

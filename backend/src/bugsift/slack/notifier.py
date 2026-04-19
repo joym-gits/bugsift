@@ -137,6 +137,8 @@ def build_card_blocks(
     ]
 
     context_bits: list[str] = []
+    if card.severity:
+        context_bits.append(f"{_severity_emoji(card.severity)} *{card.severity}*")
     if card.classification:
         if card.confidence is not None:
             context_bits.append(
@@ -201,6 +203,15 @@ def build_card_blocks(
         }
     )
     return blocks
+
+
+def _severity_emoji(severity: str) -> str:
+    return {
+        "blocker": "🚨",
+        "high": "🔴",
+        "medium": "🟡",
+        "low": "⚪",
+    }.get(severity.lower(), "")
 
 
 def _event_heading(event: str) -> str:

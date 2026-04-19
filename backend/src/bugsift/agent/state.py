@@ -85,6 +85,9 @@ class TriageState:
 
     # --- step outputs ---
     classification: Classification | None = None
+    # ``blocker`` | ``high`` | ``medium`` | ``low`` | None. Filled by
+    # :mod:`bugsift.agent.severity` after all other steps run.
+    severity: str | None = None
     confidence: float | None = None
     rationale: str | None = None
     duplicates: list[DuplicateCandidate] = field(default_factory=list)

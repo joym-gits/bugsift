@@ -65,6 +65,7 @@ class CardResponse(BaseModel):
     feedback_report_count: int = 0
     status: str
     classification: str | None
+    severity: str | None = None
     confidence: float | None = None
     rationale: str | None = None
     draft_comment: str | None = None
@@ -102,6 +103,7 @@ async def list_cards(
     classification: str | None = None,
     verdict: str | None = None,
     source: str | None = None,
+    severity: str | None = None,
 ) -> list[CardResponse]:
     """List triage cards the current user owns, newest first.
 
@@ -124,6 +126,8 @@ async def list_cards(
         stmt = stmt.where(TriageCard.reproduction_verdict == verdict)
     if source:
         stmt = stmt.where(TriageCard.source == source)
+    if severity:
+        stmt = stmt.where(TriageCard.severity == severity)
     stmt = stmt.order_by(TriageCard.created_at.desc()).limit(limit)
     rows = (await session.execute(stmt)).all()
     return [_card_response(card, full_name, branch) for card, full_name, branch in rows]
@@ -479,6 +483,7 @@ def _card_response(
         feedback_report_count=len(feedback_ids),
         status=card.status,
         classification=card.classification,
+        severity=card.severity,
         confidence=float(card.confidence) if card.confidence is not None else None,
         rationale=card.rationale,
         draft_comment=card.draft_comment,

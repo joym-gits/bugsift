@@ -137,6 +137,11 @@ class TriageCard(Base):
     github_issue_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending", index=True)
     classification: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # ``blocker`` | ``high`` | ``medium`` | ``low`` | ``None``. Computed
+    # deterministically from classification + reproduction verdict +
+    # regression suspects + number of user reports. See
+    # :mod:`bugsift.agent.severity`.
+    severity: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
     confidence: Mapped[float | None] = mapped_column(Numeric(4, 3), nullable=True)
     rationale: Mapped[str | None] = mapped_column(Text, nullable=True)
     duplicates_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)

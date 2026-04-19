@@ -198,6 +198,10 @@ async def _process_feedback_report(report_id: int) -> None:
                 embedding_dim=embedding_dim,
                 reproduce_languages=reproduce_languages,
                 budget_ok=not budget.is_exhausted,
+                # Slice-4 of feedback always has exactly one report at
+                # card-create time; merge-dedup bumps this later by
+                # re-running severity against the updated list.
+                feedback_report_count=1,
             )
         except Exception:
             logger.exception(
@@ -260,6 +264,7 @@ def _write_card(
         feedback_report_ids_json=[report.id],
         status="pending",
         classification=state.classification,
+        severity=state.severity,
         confidence=(
             Decimal(f"{state.confidence:.3f}") if state.confidence is not None else None
         ),

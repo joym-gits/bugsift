@@ -117,7 +117,13 @@ async def attach_report_to_card(
     card_id: int,
 ) -> TriageCard:
     """Append ``report.id`` to the card's ``feedback_report_ids_json``
-    array and link ``report.card_id``. Caller commits."""
+    array and link ``report.card_id``. Caller commits.
+
+    Also re-evaluates severity: more user reports on the same card is
+    one of the signals that bumps severity up. We use the simplified
+    in-module copy of the rule rather than depending on the full
+    :mod:`bugsift.agent.severity` because we don't have a rebuilt
+    ``TriageState`` here — only the persisted card."""
     card = await session.get(TriageCard, card_id)
     if card is None:
         raise RuntimeError(f"card {card_id} vanished mid-merge")
@@ -126,4 +132,56 @@ async def attach_report_to_card(
         ids.append(report.id)
     card.feedback_report_ids_json = ids
     report.card_id = card.id
+
+    # Re-score severity now that the report count changed. Only bumps
+    # upward, never down, so we don't accidentally downgrade a card a
+    # maintainer is already looking at.
+    new_severity = _severity_for_card_after_merge(card, report_count=len(ids))
+    if new_severity and _rank(new_severity) > _rank(card.severity):
+        card.severity = new_severity
+
     return card
+
+
+_SEV_RANK = {"low": 1, "medium": 2, "high": 3, "blocker": 4}
+
+
+def _rank(severity: str | None) -> int:
+    return _SEV_RANK.get((severity or "").lower(), 0)
+
+
+def _severity_for_card_after_merge(card: TriageCard, *, report_count: int) -> str | None:
+    """Mirror of the severity rules in :mod:`bugsift.agent.severity`
+    but driven off a persisted card. Kept inline rather than imported
+    to avoid cross-module rebuild of a full TriageState for the merge
+    path; stays trivially in sync because the inputs are stable."""
+    classification = (card.classification or "").lower()
+    if classification == "bug":
+        base = "medium"
+    elif classification in (
+        "needs_info",
+        "needs-info",
+        "question",
+        "feature-request",
+        "feature_request",
+    ):
+        base = "low"
+    else:
+        return None
+
+    bumps = 0
+    if card.reproduction_verdict == "reproduced":
+        bumps += 1
+    regs = card.regression_suspects_json
+    if isinstance(regs, list) and regs:
+        bumps += 1
+    if report_count >= 5:
+        bumps += 1
+
+    levels = ("low", "medium", "high", "blocker")
+    try:
+        idx = levels.index(base)
+    except ValueError:
+        return base
+    idx = min(idx + bumps, len(levels) - 1)
+    return levels[idx]

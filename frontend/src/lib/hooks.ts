@@ -93,6 +93,7 @@ export type Card = {
   feedback_report_count?: number;
   status: string;
   classification: string | null;
+  severity?: "blocker" | "high" | "medium" | "low" | null;
   confidence?: number | null;
   rationale?: string | null;
   draft_comment?: string | null;
@@ -170,6 +171,8 @@ export type CardFilters = {
   status?: string;
   classification?: string;
   verdict?: string;
+  severity?: string;
+  source?: string;
   limit?: number;
 };
 
@@ -178,6 +181,8 @@ function cardsPath(filters: CardFilters): string {
   if (filters.status) params.set("status", filters.status);
   if (filters.classification) params.set("classification", filters.classification);
   if (filters.verdict) params.set("verdict", filters.verdict);
+  if (filters.severity) params.set("severity", filters.severity);
+  if (filters.source) params.set("source", filters.source);
   if (filters.limit) params.set("limit", String(filters.limit));
   const qs = params.toString();
   return qs ? `/cards?${qs}` : "/cards";
