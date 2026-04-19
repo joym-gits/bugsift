@@ -255,6 +255,25 @@ export function useDeleteApp() {
   });
 }
 
+export type HydrateResult = {
+  added: number;
+  skipped: number;
+  installations: number;
+};
+
+export function useHydrateRepos() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<HydrateResult>("/repos/hydrate", { method: "POST" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["repos"] });
+      qc.invalidateQueries({ queryKey: ["app-details"] });
+      qc.invalidateQueries({ queryKey: ["installations"] });
+    },
+  });
+}
+
 export function useApproveCard() {
   const qc = useQueryClient();
   return useMutation({

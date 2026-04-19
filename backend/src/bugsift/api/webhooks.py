@@ -126,7 +126,15 @@ async def _handle_installation(
             installation = Installation(github_installation_id=github_installation_id)
             session.add(installation)
             await session.flush()
-        new_repos = await _upsert_repos(session, installation, payload.get("repositories") or [])
+        repos_in_payload = payload.get("repositories") or []
+        # Some install flows (e.g. "select repositories" with an empty
+        # current selection, or re-delivered events) ship installation.created
+        # without the repositories array populated. In that case the App /
+        # installation_repositories.added event may or may not follow — not
+        # enough to rely on. Ask GitHub directly so we don't sit empty-handed.
+        if not repos_in_payload:
+            repos_in_payload = await _fetch_installation_repos(session, github_installation_id)
+        new_repos = await _upsert_repos(session, installation, repos_in_payload)
         await session.commit()
         for repo_id in new_repos:
             _enqueue_index_repo(repo_id)
@@ -171,6 +179,68 @@ async def _handle_installation_repositories(
                 )
             )
     await session.commit()
+
+
+async def _fetch_installation_repos(
+    session: AsyncSession, github_installation_id: int
+) -> list[dict[str, Any]]:
+    """Pull the live repository list for an installation from GitHub.
+
+    Used as a fallback when the webhook payload arrives without a
+    ``repositories`` array, and exposed through a hydrate endpoint for
+    manual recovery.
+    """
+    import httpx
+
+    from bugsift.github import app as gh_app
+
+    cfg = await app_config.load_app_config(session)
+    if cfg is None:
+        logger.warning(
+            "_fetch_installation_repos: no App config; cannot hydrate installation=%s",
+            github_installation_id,
+        )
+        return []
+    try:
+        token = await gh_app.get_installation_token(
+            github_installation_id,
+            app_id=cfg.app_id,
+            private_key_pem=cfg.private_key_pem,
+        )
+    except Exception as e:
+        logger.warning(
+            "_fetch_installation_repos: token mint failed for %s: %s",
+            github_installation_id,
+            e,
+        )
+        return []
+    out: list[dict[str, Any]] = []
+    page = 1
+    async with httpx.AsyncClient() as client:
+        while True:
+            response = await client.get(
+                "https://api.github.com/installation/repositories",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+                params={"per_page": 100, "page": page},
+                timeout=20.0,
+            )
+            if response.status_code != 200:
+                logger.warning(
+                    "_fetch_installation_repos: list failed %s for installation=%s",
+                    response.status_code,
+                    github_installation_id,
+                )
+                break
+            batch = response.json().get("repositories") or []
+            out.extend(batch)
+            if len(batch) < 100:
+                break
+            page += 1
+    return out
 
 
 async def _upsert_repos(

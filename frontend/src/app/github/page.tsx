@@ -18,9 +18,11 @@ import { Button } from "@/components/ui/button";
 import { ApiError } from "@/lib/api";
 import {
   type AppDetails,
+  type HydrateResult,
   type InstallationOut,
   useAppDetails,
   useDeleteApp,
+  useHydrateRepos,
   useInstallations,
   useMe,
 } from "@/lib/hooks";
@@ -234,6 +236,10 @@ function InstallationsSection({
   const installUrl = appSlug
     ? `https://github.com/apps/${appSlug}/installations/new`
     : null;
+  const hydrate = useHydrateRepos();
+  const [hydrateMessage, setHydrateMessage] = useState<string | null>(null);
+  const [hydrateError, setHydrateError] = useState<string | null>(null);
+
   return (
     <section className="rounded-lg border bg-card p-6 shadow-sm">
       <div className="mb-1 flex items-center justify-between gap-2">
@@ -241,20 +247,62 @@ function InstallationsSection({
           <KeyRound className="h-4 w-4 text-muted-foreground" />
           <h2 className="text-base font-medium">Installations</h2>
         </div>
-        {installUrl && (
-          <a
-            href={installUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-input bg-background px-3 text-xs font-medium hover:bg-accent hover:text-accent-foreground"
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={async () => {
+              setHydrateMessage(null);
+              setHydrateError(null);
+              try {
+                const result: HydrateResult = await hydrate.mutateAsync();
+                setHydrateMessage(
+                  `Re-synced ${result.installations} installation${
+                    result.installations === 1 ? "" : "s"
+                  } — ${result.added} new repo${result.added === 1 ? "" : "s"}, ${result.skipped} already present.`,
+                );
+              } catch (e) {
+                setHydrateError(
+                  e instanceof ApiError
+                    ? e.message
+                    : e instanceof Error
+                      ? e.message
+                      : "hydrate failed",
+                );
+              }
+            }}
+            disabled={hydrate.isPending}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-input bg-background px-3 text-xs font-medium hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
           >
-            Install on another repo <ExternalLink className="h-3 w-3" />
-          </a>
-        )}
+            {hydrate.isPending ? "syncing…" : "Re-sync repos"}
+          </button>
+          {installUrl && (
+            <a
+              href={installUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-input bg-background px-3 text-xs font-medium hover:bg-accent hover:text-accent-foreground"
+            >
+              Install on another repo <ExternalLink className="h-3 w-3" />
+            </a>
+          )}
+        </div>
       </div>
       <p className="text-sm text-muted-foreground">
-        Each installation binds bugsift to a repo you own or maintain.
+        Each installation binds bugsift to a repo you own or maintain. Use
+        <strong> Re-sync repos</strong> if GitHub&apos;s install webhook
+        arrived without its repo list (a known GitHub quirk) — bugsift will
+        query the API and backfill.
       </p>
+      {hydrateMessage && (
+        <p className="mt-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs text-primary">
+          {hydrateMessage}
+        </p>
+      )}
+      {hydrateError && (
+        <p className="mt-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-1.5 text-xs text-destructive">
+          {hydrateError}
+        </p>
+      )}
 
       {loading ? (
         <Skeleton className="mt-4 h-16 w-full" />
