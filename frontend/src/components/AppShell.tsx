@@ -2,7 +2,16 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Inbox, History, Settings, Sparkles, LogOut, type LucideIcon } from "lucide-react";
+import {
+  Github,
+  History,
+  Inbox,
+  LogOut,
+  Rocket,
+  Settings,
+  Sparkles,
+  type LucideIcon,
+} from "lucide-react";
 
 import { API_BASE_URL } from "@/lib/api";
 import { type Me, useLogout } from "@/lib/hooks";
@@ -17,6 +26,8 @@ type NavItem = {
 const NAV: NavItem[] = [
   { href: "/dashboard", label: "Queue", icon: Inbox },
   { href: "/history", label: "History", icon: History },
+  { href: "/onboarding", label: "Onboarding", icon: Rocket },
+  { href: "/github", label: "GitHub", icon: Github },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

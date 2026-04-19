@@ -268,6 +268,20 @@ function AppStep({
         App &mdash; if you&apos;re not signed in, their page 500s instead of
         asking you to log in.
       </p>
+      <p className="mt-3 rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
+        <strong className="text-foreground">Only two clicks happen on GitHub:</strong>{" "}
+        (1) &ldquo;Create bugsift App&rdquo; on the next screen and (2) picking
+        a repo to install on in Step 2. GitHub requires a human to confirm
+        both &mdash; their security model, not ours. Everything else (client
+        secret, private key, webhook secret, permissions, callbacks, event
+        subscriptions, PEM conversion) is handled automatically and stored
+        encrypted in bugsift&apos;s database. You can see every persisted
+        value on the{" "}
+        <a href="/github" className="underline underline-offset-4">
+          GitHub
+        </a>{" "}
+        settings page after setup.
+      </p>
 
       {configured ? (
         <div className="mt-5 flex items-center gap-2 rounded-md border border-primary/30 bg-primary/5 p-3 text-sm">

@@ -12,6 +12,7 @@ from bugsift import __version__
 from bugsift.api.auth import router as auth_router
 from bugsift.api.cards import router as cards_router
 from bugsift.api.github import router as github_router
+from bugsift.api.github_settings import router as github_settings_router
 from bugsift.api.keys import router as keys_router
 from bugsift.api.llm import router as llm_router
 from bugsift.api.manifest import router as manifest_router
@@ -83,6 +84,7 @@ def create_app() -> FastAPI:
     app.include_router(llm_router)
     app.include_router(usage_router)
     app.include_router(manifest_router)
+    app.include_router(github_settings_router)
 
     return app
 

@@ -199,6 +199,62 @@ export function useAppStatus(enabled: boolean, pollMs: number | false = false) {
   });
 }
 
+export type AppDetails = {
+  configured: boolean;
+  github_app_id: number | null;
+  name: string | null;
+  slug: string | null;
+  owner_login: string | null;
+  html_url: string | null;
+  client_id: string | null;
+  client_secret_masked: string | null;
+  webhook_secret_masked: string | null;
+  private_key_fingerprint: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  tunnel_url: string | null;
+  tunnel_running: boolean;
+  installations_count: number;
+  repos_count: number;
+};
+
+export type InstallationOut = {
+  id: number;
+  github_installation_id: number;
+  installed_at: string;
+  suspended_at: string | null;
+  repo_count: number;
+};
+
+export function useAppDetails(enabled: boolean) {
+  return useQuery<AppDetails>({
+    queryKey: ["app-details"],
+    queryFn: () => apiFetch<AppDetails>("/github/app"),
+    enabled,
+  });
+}
+
+export function useInstallations(enabled: boolean) {
+  return useQuery<InstallationOut[]>({
+    queryKey: ["installations"],
+    queryFn: () => apiFetch<InstallationOut[]>("/github/installations"),
+    enabled,
+  });
+}
+
+export function useDeleteApp() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<void>("/github/app/manifest", { method: "DELETE" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["app-status"] });
+      qc.invalidateQueries({ queryKey: ["app-details"] });
+      qc.invalidateQueries({ queryKey: ["installations"] });
+    },
+  });
+}
+
 export function useApproveCard() {
   const qc = useQueryClient();
   return useMutation({
