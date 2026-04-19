@@ -18,6 +18,7 @@ from bugsift.db.models import (
     GithubAppCredentials,
     Installation,
     LLMUsage,
+    PushEvent,
     Repo,
     RepoAnalysis,
     RepoConfig,
@@ -77,6 +78,7 @@ async def db_engine() -> AsyncIterator:
                 FeedbackApp.__table__,
                 FeedbackReport.__table__,
                 RepoAnalysis.__table__,
+                PushEvent.__table__,
             ],
         )
     yield engine

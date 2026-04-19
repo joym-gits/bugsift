@@ -70,6 +70,18 @@ export type DuplicateCandidate = {
   confidence: number;
 };
 
+export type RegressionSuspect = {
+  commit_sha: string;
+  short_sha: string;
+  message_first_line: string;
+  author_name: string | null;
+  author_login: string | null;
+  pushed_at_iso: string;
+  pr_number: number | null;
+  ref: string | null;
+  overlapping_paths: string[];
+};
+
 export type Card = {
   id: number;
   repo_full_name: string;
@@ -88,6 +100,7 @@ export type Card = {
   proposed_labels?: string[] | null;
   suspected_files?: SuspectedFile[] | null;
   duplicates?: DuplicateCandidate[] | null;
+  regression_suspects?: RegressionSuspect[] | null;
   reproduction_verdict?:
     | "reproduced"
     | "not_reproduced"

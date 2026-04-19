@@ -172,6 +172,57 @@ export function TriageCard({ card }: { card: Card }) {
         </details>
       )}
 
+      {card.regression_suspects && card.regression_suspects.length > 0 && (
+        <div className="mt-3 rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-sm">
+          <div className="text-xs font-medium uppercase tracking-wide text-amber-700">
+            Possible cause — recent pushes that touched suspected files
+          </div>
+          <ul className="mt-2 space-y-2">
+            {card.regression_suspects.map((s) => (
+              <li key={s.commit_sha} className="text-xs">
+                <div className="flex flex-wrap items-baseline gap-2">
+                  <a
+                    href={`https://github.com/${card.repo_full_name}/commit/${s.commit_sha}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-mono underline underline-offset-4"
+                  >
+                    {s.short_sha}
+                  </a>
+                  <span className="font-medium">
+                    {s.message_first_line || "(no message)"}
+                  </span>
+                  {s.pr_number !== null && s.pr_number !== undefined && (
+                    <a
+                      href={`https://github.com/${card.repo_full_name}/pull/${s.pr_number}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-700 underline underline-offset-4"
+                    >
+                      PR #{s.pr_number}
+                    </a>
+                  )}
+                </div>
+                <div className="mt-0.5 text-muted-foreground">
+                  {(s.author_login || s.author_name || "someone")} ·{" "}
+                  {new Date(s.pushed_at_iso).toLocaleString()}
+                </div>
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {s.overlapping_paths.map((p) => (
+                    <code
+                      key={p}
+                      className="rounded border bg-background px-1.5 py-0.5 text-[10px]"
+                    >
+                      {p}
+                    </code>
+                  ))}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {card.duplicates && card.duplicates.length > 0 && (
         <div className="mt-3 rounded-md border bg-muted/10 p-3 text-sm">
           <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">

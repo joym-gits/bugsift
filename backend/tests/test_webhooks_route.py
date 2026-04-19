@@ -9,7 +9,7 @@ from sqlalchemy import select
 
 from bugsift.api import webhooks as webhook_route
 from bugsift.config import get_settings
-from bugsift.db.models import Installation, Repo, RepoConfig
+from bugsift.db.models import Installation, PushEvent, Repo, RepoConfig
 from bugsift.github import rate_limit
 from bugsift.github.webhooks import sign_payload
 
@@ -195,6 +195,67 @@ async def test_installation_repositories_added_enqueues_backfill(
         await session.execute(select(Repo).where(Repo.github_repo_id == 8200))
     ).scalar_one()
     assert captured == [repo.id]
+
+
+@pytest.mark.asyncio
+async def test_push_persists_push_events(
+    client, session, _configure_webhook_secret
+) -> None:
+    install = Installation(github_installation_id=5020)
+    session.add(install)
+    await session.flush()
+    repo = Repo(
+        installation_id=install.id,
+        github_repo_id=9100,
+        full_name="org/widget",
+        default_branch="main",
+        indexing_status="ready",
+    )
+    session.add(repo)
+    await session.commit()
+
+    payload = {
+        "ref": "refs/heads/main",
+        "repository": {"id": 9100, "default_branch": "main"},
+        "pusher": {"name": "alice"},
+        "commits": [
+            {
+                "id": "a" * 40,
+                "message": "fix: save handler (#77)",
+                "timestamp": "2026-04-19T10:00:00Z",
+                "author": {"name": "Alice", "username": "alice"},
+                "added": [],
+                "modified": ["app/save.py"],
+                "removed": [],
+            },
+            {
+                "id": "b" * 40,
+                "message": "chore: rename util\n\nMerge pull request #78",
+                "timestamp": "2026-04-19T11:00:00Z",
+                "author": {"name": "Bob", "username": "bob"},
+                "added": ["app/newutil.py"],
+                "modified": [],
+                "removed": [],
+            },
+        ],
+    }
+
+    r = _post(client, _configure_webhook_secret, "push", payload)
+    assert r.status_code == 202
+
+    rows = (
+        await session.execute(select(PushEvent).where(PushEvent.repo_id == repo.id))
+    ).scalars().all()
+    assert len(rows) == 2
+    by_sha = {row.commit_sha: row for row in rows}
+    first = by_sha["a" * 40]
+    assert first.pr_number == 77
+    assert first.touched_paths_json == ["app/save.py"]
+    assert first.author_login == "alice"
+    assert first.ref == "refs/heads/main"
+    second = by_sha["b" * 40]
+    assert second.pr_number == 78
+    assert second.touched_paths_json == ["app/newutil.py"]
 
 
 @pytest.mark.asyncio

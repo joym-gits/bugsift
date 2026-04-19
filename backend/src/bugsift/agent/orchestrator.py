@@ -18,6 +18,7 @@ from bugsift.agent.state import TriageState
 from bugsift.agent.steps import classify as classify_step
 from bugsift.agent.steps import comment as comment_step
 from bugsift.agent.steps import dedup as dedup_step
+from bugsift.agent.steps import regression as regression_step
 from bugsift.agent.steps import reproduction as reproduction_step
 from bugsift.agent.steps import retrieval as retrieval_step
 from bugsift.llm.base import LLMProvider
@@ -88,6 +89,13 @@ async def run(
         # so the maintainer sees them even if retrieval didn't.
         if session is not None and state.reproduction_log:
             state = await retrieval_step.refine_with_repro(state, session=session)
+
+    # Regression correlation: cheap SQL-only overlap against recent
+    # pushes. Runs regardless of budget — there's no LLM cost and the
+    # answer is among the highest-value signals on the card when a
+    # recent push actually caused the bug.
+    if session is not None and state.suspected_files:
+        state = await regression_step.run(state, session=session)
 
     state = await comment_step.run(state, provider)
     state.status = "complete"

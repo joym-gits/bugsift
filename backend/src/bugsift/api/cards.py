@@ -40,6 +40,18 @@ class DuplicateOut(BaseModel):
     confidence: float
 
 
+class RegressionSuspectOut(BaseModel):
+    commit_sha: str
+    short_sha: str
+    message_first_line: str
+    author_name: str | None = None
+    author_login: str | None = None
+    pushed_at_iso: str
+    pr_number: int | None = None
+    ref: str | None = None
+    overlapping_paths: list[str]
+
+
 class CardResponse(BaseModel):
     id: int
     repo_full_name: str
@@ -60,6 +72,7 @@ class CardResponse(BaseModel):
     proposed_labels: list[str] | None = None
     suspected_files: list[SuspectedFileOut] | None = None
     duplicates: list[DuplicateOut] | None = None
+    regression_suspects: list[RegressionSuspectOut] | None = None
     reproduction_verdict: str | None = None
     reproduction_log: str | None = None
     budget_limited: bool = False
@@ -416,6 +429,26 @@ def _card_response(
             )
             for item in card.duplicates_json
         ]
+    regression_suspects = None
+    if card.regression_suspects_json and isinstance(card.regression_suspects_json, list):
+        regression_suspects = []
+        for item in card.regression_suspects_json:
+            if not isinstance(item, dict):
+                continue
+            overlap = item.get("overlapping_paths") or []
+            regression_suspects.append(
+                RegressionSuspectOut(
+                    commit_sha=str(item.get("commit_sha", "")),
+                    short_sha=str(item.get("short_sha", "")),
+                    message_first_line=str(item.get("message_first_line", "")),
+                    author_name=item.get("author_name"),
+                    author_login=item.get("author_login"),
+                    pushed_at_iso=str(item.get("pushed_at_iso", "")),
+                    pr_number=item.get("pr_number"),
+                    ref=item.get("ref"),
+                    overlapping_paths=[str(p) for p in overlap if isinstance(p, str)],
+                )
+            )
     feedback_ids = card.feedback_report_ids_json or []
     if not isinstance(feedback_ids, list):
         feedback_ids = []
@@ -446,6 +479,7 @@ def _card_response(
         proposed_labels=card.proposed_labels_json,
         suspected_files=suspected,
         duplicates=duplicates,
+        regression_suspects=regression_suspects,
         reproduction_verdict=card.reproduction_verdict,
         reproduction_log=card.reproduction_log,
         budget_limited=bool(card.budget_limited),

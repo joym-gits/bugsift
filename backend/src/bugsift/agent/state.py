@@ -34,6 +34,26 @@ class SuspectedFile:
 
 
 @dataclass
+class RegressionSuspectRecord:
+    """Serializable shape of a regression suspect, stored on the card.
+
+    Mirrors :class:`bugsift.regression.correlator.RegressionSuspect` but
+    uses strings for the timestamp so the whole thing round-trips cleanly
+    through the JSONB column.
+    """
+
+    commit_sha: str
+    short_sha: str
+    message_first_line: str
+    author_name: str | None
+    author_login: str | None
+    pushed_at_iso: str
+    pr_number: int | None
+    ref: str | None
+    overlapping_paths: list[str]
+
+
+@dataclass
 class LLMCallRecord:
     step: str
     model: str
@@ -69,6 +89,7 @@ class TriageState:
     rationale: str | None = None
     duplicates: list[DuplicateCandidate] = field(default_factory=list)
     suspected_files: list[SuspectedFile] = field(default_factory=list)
+    regression_suspects: list[RegressionSuspectRecord] = field(default_factory=list)
     reproduction_verdict: str | None = None
     reproduction_log: str | None = None
     draft_comment: str | None = None

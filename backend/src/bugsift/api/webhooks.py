@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
@@ -10,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bugsift.api.deps import get_session
 from bugsift.config import get_settings
-from bugsift.db.models import Installation, Repo, RepoConfig
+from bugsift.db.models import Installation, PushEvent, Repo, RepoConfig
 from bugsift.github import config as app_config
 from bugsift.github.rate_limit import allow_installation_event
 from bugsift.github.webhooks import verify_signature
@@ -320,7 +322,8 @@ async def _upsert_repos(
 
 async def _handle_push(session: AsyncSession, payload: dict[str, Any]) -> None:
     """Only process push events against the repo's default branch; compute
-    the union of added/modified/removed paths across all commits in the push."""
+    the union of added/modified/removed paths across all commits in the push,
+    and persist a row per commit for the regression correlator."""
     ref = payload.get("ref") or ""
     repo_payload = payload.get("repository") or {}
     github_repo_id = repo_payload.get("id")
@@ -345,11 +348,102 @@ async def _handle_push(session: AsyncSession, payload: dict[str, Any]) -> None:
     overlap = (added | modified) & removed
     removed -= overlap
 
+    await _persist_push_events(session, repo=repo, payload=payload, ref=ref)
+    # Commit so the PushEvent rows are visible to subsequent triage
+    # jobs (which run out-of-process and would otherwise not see our
+    # uncommitted rows). Indexing delta jobs also read from the DB via
+    # their own sessions, so ordering matters here.
+    await session.commit()
+
     if not (added or modified or removed):
         return
     _enqueue_index_repo_delta(
         repo.id, added=sorted(added), modified=sorted(modified), removed=sorted(removed)
     )
+
+
+_PR_IN_MESSAGE_RE = re.compile(r"\(#(\d+)\)|Merge pull request #(\d+)")
+
+
+async def _persist_push_events(
+    session: AsyncSession, *, repo: Repo, payload: dict[str, Any], ref: str
+) -> None:
+    """Write one :class:`PushEvent` row per commit in the push.
+
+    The regression correlator reads these rows to overlap a card's
+    suspected files against what recently landed. We parse the PR number
+    out of the commit message heuristically (Merge / squash commits carry
+    ``(#NNN)``) — good enough to surface a link without a second API call.
+    """
+    commits = payload.get("commits") or []
+    if not commits:
+        return
+    pusher = payload.get("pusher") or {}
+    for commit in commits:
+        sha = str(commit.get("id") or "").strip()
+        if not sha:
+            continue
+        # INSERT ON CONFLICT DO NOTHING — idempotent under webhook replays.
+        existing = (
+            await session.execute(
+                select(PushEvent).where(
+                    PushEvent.repo_id == repo.id, PushEvent.commit_sha == sha
+                )
+            )
+        ).scalar_one_or_none()
+        if existing is not None:
+            continue
+        raw_message = str(commit.get("message") or "").strip()
+        first_line = raw_message.split("\n", 1)[0][:500]
+        touched = sorted(
+            set(commit.get("added") or [])
+            | set(commit.get("modified") or [])
+        )
+        pushed_at = _parse_commit_timestamp(
+            commit.get("timestamp") or payload.get("head_commit", {}).get("timestamp")
+        )
+        author = commit.get("author") or {}
+        pr_number = _parse_pr_number(raw_message)
+        session.add(
+            PushEvent(
+                repo_id=repo.id,
+                commit_sha=sha,
+                message_first_line=first_line,
+                author_name=str(author.get("name") or "") or None,
+                author_login=str(
+                    author.get("username") or pusher.get("name") or ""
+                )
+                or None,
+                pushed_at=pushed_at,
+                ref=ref,
+                touched_paths_json=touched or None,
+                pr_number=pr_number,
+            )
+        )
+
+
+def _parse_commit_timestamp(value: Any) -> datetime:
+    from datetime import UTC, datetime as _dt
+
+    if isinstance(value, str) and value:
+        try:
+            return _dt.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            pass
+    return _dt.now(UTC)
+
+
+def _parse_pr_number(message: str) -> int | None:
+    match = _PR_IN_MESSAGE_RE.search(message or "")
+    if match is None:
+        return None
+    for grp in match.groups():
+        if grp:
+            try:
+                return int(grp)
+            except ValueError:
+                return None
+    return None
 
 
 async def _enqueue_embed_issue_for_payload(

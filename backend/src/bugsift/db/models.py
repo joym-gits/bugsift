@@ -143,6 +143,12 @@ class TriageCard(Base):
     reproduction_verdict: Mapped[str | None] = mapped_column(String(32), nullable=True)
     reproduction_log: Mapped[str | None] = mapped_column(Text, nullable=True)
     suspected_files_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    # Recent pushes that touched any of ``suspected_files_json`` and
+    # landed before this card's ``created_at`` — the regression
+    # correlator's output.
+    regression_suspects_json: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB, nullable=True
+    )
     draft_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     proposed_labels_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     proposed_action: Mapped[str | None] = mapped_column(String(48), nullable=True)
@@ -152,6 +158,37 @@ class TriageCard(Base):
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     decided_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     final_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class PushEvent(Base):
+    """A GitHub ``push`` we've seen against a repo's default branch.
+
+    Populated from the webhook handler; each row is a single push (which
+    may bundle many commits). We flatten the commits into their first
+    line + touched paths union so the regression correlator can overlap
+    those paths against a card's ``suspected_files_json`` without hauling
+    the whole webhook payload around.
+    """
+
+    __tablename__ = "push_events"
+    __table_args__ = (
+        UniqueConstraint("repo_id", "commit_sha", name="uq_push_event_sha"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    repo_id: Mapped[int] = mapped_column(
+        ForeignKey("repos.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    commit_sha: Mapped[str] = mapped_column(String(64), nullable=False)
+    message_first_line: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    author_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    author_login: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    pushed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+    ref: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    touched_paths_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    pr_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class CodeChunk(Base):
