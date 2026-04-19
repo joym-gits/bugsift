@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bugsift.api.deps import get_current_user, get_optional_user, get_session
 from bugsift.config import get_settings
-from bugsift.db.models import User
+from bugsift.db.models import Installation, User, UserApiKey
 from bugsift.github import config as app_config
 from bugsift.github import oauth as github_oauth
 
@@ -97,7 +97,30 @@ async def github_callback(
 
     request.session["user_id"] = user.id
     logger.info("login: user_id=%s github_login=%s", user.id, user.github_login)
-    return RedirectResponse("/dashboard", status_code=status.HTTP_303_SEE_OTHER)
+    # First-time users (no installation or no LLM key) land on the wizard;
+    # everyone else goes straight to the queue. The dashboard banner still
+    # handles edge cases and gives returning users a manual path back to
+    # onboarding whenever they want it.
+    target = await _post_login_target(session, user.id)
+    return RedirectResponse(target, status_code=status.HTTP_303_SEE_OTHER)
+
+
+async def _post_login_target(session: AsyncSession, user_id: int) -> str:
+    install_count = (
+        await session.execute(
+            select(Installation.id).where(Installation.user_id == user_id).limit(1)
+        )
+    ).first()
+    if install_count is None:
+        return "/onboarding"
+    key_count = (
+        await session.execute(
+            select(UserApiKey.id).where(UserApiKey.user_id == user_id).limit(1)
+        )
+    ).first()
+    if key_count is None:
+        return "/onboarding"
+    return "/dashboard"
 
 
 @router.get("/me", response_model=MeResponse | None)
