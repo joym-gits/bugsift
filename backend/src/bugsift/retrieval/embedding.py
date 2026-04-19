@@ -7,8 +7,9 @@ orchestrator treats that as a skip.
 
 Preference order when a repo has no recorded choice yet:
 1. ``openai`` (text-embedding-3-small, 1536) — highest quality, minor cost
-2. ``ollama`` (nomic-embed-text, 768) — free + local
+2. ``ollama`` (nomic-embed-text, 768) — free + local (Ollama host)
 3. ``google`` (text-embedding-004, 768) — free tier
+4. ``local`` (bge-small-en-v1.5, 384) — built-in fallback, no key needed
 
 Anthropic has no embeddings API and is never selected.
 """
@@ -30,10 +31,13 @@ PROVIDER_DEFAULTS: dict[str, tuple[str, int]] = {
     "openai": ("text-embedding-3-small", 1536),
     "ollama": ("nomic-embed-text", 768),
     "google": ("text-embedding-004", 768),
+    "local": ("BAAI/bge-small-en-v1.5", 384),
 }
 
-# Highest-quality first.
-PREFERENCE_ORDER: tuple[str, ...] = ("openai", "ollama", "google")
+# Highest-quality first. ``local`` is the key-free fallback so a fresh
+# install can run dedup + retrieval without the user configuring an
+# embedding provider.
+PREFERENCE_ORDER: tuple[str, ...] = ("openai", "ollama", "google", "local")
 
 
 @dataclass(frozen=True)
@@ -61,6 +65,9 @@ async def get_embedder_for_repo(
     if repo.embedding_model:
         # Locked in — find the key that produces this model.
         provider_name, model_name = repo.embedding_model.split(":", 1)
+        if provider_name == "local":
+            provider = build_provider("local", "")
+            return provider, EmbeddingChoice("local", model_name, repo.embedding_dim or 0)
         if provider_name not in user_keys:
             raise EmbeddingUnavailable(
                 f"repo pinned to {repo.embedding_model} but user has no {provider_name} key"
@@ -69,13 +76,17 @@ async def get_embedder_for_repo(
         return provider, EmbeddingChoice(provider_name, model_name, repo.embedding_dim or 0)
 
     for provider_name in PREFERENCE_ORDER:
+        if provider_name == "local":
+            model, dim = PROVIDER_DEFAULTS["local"]
+            provider = build_provider("local", "")
+            return provider, EmbeddingChoice("local", model, dim)
         if provider_name in user_keys:
             model, dim = PROVIDER_DEFAULTS[provider_name]
             provider = build_provider(provider_name, user_keys[provider_name])
             return provider, EmbeddingChoice(provider_name, model, dim)
 
     raise EmbeddingUnavailable(
-        "user has no embedding-capable key configured (need openai, ollama, or google)"
+        "no embedding provider available (unexpected — local should always be a fallback)"
     )
 
 

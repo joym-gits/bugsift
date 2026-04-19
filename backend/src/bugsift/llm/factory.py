@@ -14,6 +14,7 @@ from bugsift.db.models import User, UserApiKey
 from bugsift.llm.anthropic import AnthropicProvider
 from bugsift.llm.base import LLMProvider
 from bugsift.llm.google import GoogleProvider
+from bugsift.llm.local_embed import LocalEmbeddingProvider
 from bugsift.llm.ollama import OllamaProvider
 from bugsift.llm.openai import OpenAIProvider
 from bugsift.security import crypto
@@ -44,4 +45,7 @@ def build_provider(provider_name: str, secret: str) -> LLMProvider:
         return GoogleProvider(secret)
     if provider_name == "ollama":
         return OllamaProvider(secret)
+    if provider_name == "local":
+        # No secret — the local embedder is built into the worker image.
+        return LocalEmbeddingProvider()
     raise ValueError(f"unknown provider {provider_name!r}")

@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bugsift.api.deps import get_current_user, get_session
 from bugsift.api.webhooks import _fetch_installation_repos, _upsert_repos
 from bugsift.db.models import Installation, Repo, User
+from bugsift.workers import enqueue as enqueue_jobs
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/repos", tags=["repos"])
@@ -74,6 +75,7 @@ async def hydrate_repos(
 
     added = 0
     skipped = 0
+    newly_added_repo_ids: list[int] = []
     for install in installations:
         repos_payload = await _fetch_installation_repos(
             session, install.github_installation_id
@@ -83,8 +85,15 @@ async def hydrate_repos(
         new_repo_ids = await _upsert_repos(session, install, repos_payload)
         added += len(new_repo_ids)
         skipped += len(repos_payload) - len(new_repo_ids)
+        newly_added_repo_ids.extend(new_repo_ids)
 
     await session.commit()
+    # Kick off indexing + backfill for anything newly created. Backfill
+    # replays existing open issues through the triage pipeline so the user
+    # doesn't need to re-open issues just to see them in the dashboard.
+    for repo_id in newly_added_repo_ids:
+        enqueue_jobs.enqueue_index_repo(repo_id)
+        enqueue_jobs.enqueue_backfill_open_issues(repo_id)
     logger.info(
         "hydrate: user_id=%s installations=%s added=%s",
         user.id,
@@ -94,3 +103,35 @@ async def hydrate_repos(
     return HydrateResponse(
         added=added, skipped=skipped, installations=len(installations)
     )
+
+
+class BackfillResponse(BaseModel):
+    repo_id: int
+    queued: bool
+
+
+@router.post("/{repo_id}/backfill", response_model=BackfillResponse)
+async def backfill_repo(
+    repo_id: int,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> BackfillResponse:
+    """Manually re-run the existing-issue backfill for one repo.
+
+    Useful when the install webhook raced ahead of the App config being
+    saved, or when the user wants to re-pull the open-issue list after
+    changing something in the repo.
+    """
+    stmt = (
+        select(Repo)
+        .join(Installation, Repo.installation_id == Installation.id)
+        .where(Repo.id == repo_id, Installation.user_id == user.id)
+    )
+    repo = (await session.execute(stmt)).scalar_one_or_none()
+    if repo is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="repo not found"
+        )
+    enqueue_jobs.enqueue_backfill_open_issues(repo.id)
+    logger.info("backfill queued for repo_id=%s user_id=%s", repo.id, user.id)
+    return BackfillResponse(repo_id=repo.id, queued=True)

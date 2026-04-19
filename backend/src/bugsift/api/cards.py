@@ -4,13 +4,15 @@ import logging
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from bugsift.api.deps import get_current_user, get_session
-from bugsift.db.models import Installation, Repo, TriageCard, User
+from bugsift.db.models import FeedbackReport, Installation, Repo, TriageCard, User
+from bugsift.feedback import issue_body as feedback_issue_body
+from bugsift.github import config as app_config
 from bugsift.github.client import GithubClient
 from bugsift.workers import enqueue as enqueue_jobs
 
@@ -42,7 +44,13 @@ class CardResponse(BaseModel):
     id: int
     repo_full_name: str
     repo_default_branch: str | None = None
-    issue_number: int
+    # For feedback-sourced cards, ``issue_number`` is null until approve
+    # opens the GitHub issue (at which point ``github_issue_number`` fills in).
+    issue_number: int | None = None
+    source: str = "github"
+    github_issue_number: int | None = None
+    github_issue_url: str | None = None
+    feedback_report_count: int = 0
     status: str
     classification: str | None
     confidence: float | None = None
@@ -63,6 +71,15 @@ class EditBody(BaseModel):
     draft_comment: str
 
 
+class ApproveBody(BaseModel):
+    """Optional body on approve. Only ``admin_note`` is read today (for
+    feedback-sourced cards it gets rendered into the new GitHub issue);
+    new fields can be added without breaking clients that POST an empty
+    body."""
+
+    admin_note: str | None = Field(default=None, max_length=8000)
+
+
 @router.get("", response_model=list[CardResponse])
 async def list_cards(
     session: AsyncSession = Depends(get_session),
@@ -71,6 +88,7 @@ async def list_cards(
     status: str | None = None,
     classification: str | None = None,
     verdict: str | None = None,
+    source: str | None = None,
 ) -> list[CardResponse]:
     """List triage cards the current user owns, newest first.
 
@@ -91,9 +109,60 @@ async def list_cards(
         stmt = stmt.where(TriageCard.classification == classification)
     if verdict:
         stmt = stmt.where(TriageCard.reproduction_verdict == verdict)
+    if source:
+        stmt = stmt.where(TriageCard.source == source)
     stmt = stmt.order_by(TriageCard.created_at.desc()).limit(limit)
     rows = (await session.execute(stmt)).all()
     return [_card_response(card, full_name, branch) for card, full_name, branch in rows]
+
+
+class FeedbackReportOut(BaseModel):
+    id: int
+    body_text: str
+    url: str | None
+    user_agent: str | None
+    app_version: str | None
+    console_log: str | None
+    reporter_hash: str | None
+    created_at: datetime
+
+
+@router.get("/{card_id}/reports", response_model=list[FeedbackReportOut])
+async def list_card_reports(
+    card_id: int,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> list[FeedbackReportOut]:
+    """Underlying widget reports for a feedback-sourced card.
+
+    Returns an empty list for ``source='github'`` cards (no reports)
+    rather than 404ing, so the dashboard can unconditionally fetch."""
+    card, _, _ = await _get_owned_card(session, user, card_id)
+    if card.source != "feedback":
+        return []
+    ids = card.feedback_report_ids_json or []
+    if not isinstance(ids, list) or not ids:
+        return []
+    rows = (
+        await session.execute(
+            select(FeedbackReport)
+            .where(FeedbackReport.id.in_([int(i) for i in ids]))
+            .order_by(FeedbackReport.created_at.asc())
+        )
+    ).scalars().all()
+    return [
+        FeedbackReportOut(
+            id=r.id,
+            body_text=r.body_text,
+            url=r.url,
+            user_agent=r.user_agent,
+            app_version=r.app_version,
+            console_log=r.console_log,
+            reporter_hash=r.reporter_hash,
+            created_at=r.created_at,
+        )
+        for r in rows
+    ]
 
 
 async def _get_owned_card(session: AsyncSession, user: User, card_id: int) -> tuple[TriageCard, Repo, Installation]:
@@ -173,6 +242,7 @@ async def skip_card(
 @router.post("/{card_id}/approve", response_model=CardResponse)
 async def approve_card(
     card_id: int,
+    body: ApproveBody | None = None,
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
     github_client_factory = Depends(get_github_client_factory),
@@ -180,15 +250,49 @@ async def approve_card(
     card, repo, install = await _get_owned_card(session, user, card_id)
     if card.status != "pending":
         raise HTTPException(status_code=409, detail=f"card is already {card.status}")
+
+    cfg = await app_config.load_app_config(session)
+    if cfg is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="GitHub App is not configured — finish onboarding first",
+        )
+    client = github_client_factory(
+        install.github_installation_id,
+        app_id=cfg.app_id,
+        private_key_pem=cfg.private_key_pem,
+    )
+
+    if card.source == "feedback":
+        await _approve_feedback_card(
+            session=session,
+            card=card,
+            repo=repo,
+            user=user,
+            client=client,
+            admin_note=(body.admin_note if body else None),
+        )
+    else:
+        await _approve_github_card(card=card, repo=repo, client=client)
+        card.final_comment = card.draft_comment
+
+    card.status = "posted"
+    card.decided_at = datetime.now(UTC)
+    card.decided_by_user_id = user.id
+    await session.commit()
+    await session.refresh(card)
+    return _card_response(card, repo.full_name, repo.default_branch)
+
+
+async def _approve_github_card(*, card: TriageCard, repo: Repo, client) -> None:
+    """Classic flow: comment on the existing GitHub issue, optionally
+    apply labels, optionally close."""
     if not card.draft_comment:
         raise HTTPException(status_code=400, detail="card has no draft comment to post")
-
-    client = github_client_factory(install.github_installation_id)
-
     try:
         await client.post_issue_comment(repo.full_name, card.issue_number, card.draft_comment)
     except Exception as e:
-        logger.exception("failed to post comment card_id=%s", card_id)
+        logger.exception("failed to post comment card_id=%s", card.id)
         raise HTTPException(status_code=502, detail=f"failed to post comment: {e}") from e
 
     labels = card.proposed_labels_json or []
@@ -196,21 +300,97 @@ async def approve_card(
         try:
             await client.add_labels(repo.full_name, card.issue_number, labels)
         except Exception:
-            logger.warning("labels apply failed card_id=%s; continuing", card_id)
+            logger.warning("labels apply failed card_id=%s; continuing", card.id)
 
     if card.proposed_action == "comment_and_close":
         try:
             await client.close_issue(repo.full_name, card.issue_number)
         except Exception:
-            logger.warning("close failed card_id=%s; continuing", card_id)
+            logger.warning("close failed card_id=%s; continuing", card.id)
 
-    card.status = "posted"
-    card.final_comment = card.draft_comment
-    card.decided_at = datetime.now(UTC)
-    card.decided_by_user_id = user.id
-    await session.commit()
-    await session.refresh(card)
-    return _card_response(card, repo.full_name, repo.default_branch)
+
+async def _approve_feedback_card(
+    *,
+    session: AsyncSession,
+    card: TriageCard,
+    repo: Repo,
+    user: User,
+    client,
+    admin_note: str | None = None,
+) -> None:
+    """Open a brand-new GitHub issue for a widget-sourced feedback card,
+    then stamp the card with the resulting issue number so the dashboard
+    can link out to it.
+    """
+    report_rows = await _load_feedback_reports_for_card(session, card)
+    if not report_rows:
+        raise HTTPException(
+            status_code=400,
+            detail="feedback card has no reports to file",
+        )
+
+    snippets = [
+        feedback_issue_body.ReportSnippet(
+            body_text=r.body_text,
+            url=r.url,
+            app_version=r.app_version,
+            created_at_iso=r.created_at.isoformat(),
+        )
+        for r in report_rows
+    ]
+    title, body = feedback_issue_body.build_issue(
+        reports=snippets,
+        rationale=card.rationale,
+        classification=card.classification,
+        confidence=float(card.confidence) if card.confidence is not None else None,
+        suspected_files=feedback_issue_body.snippets_from_suspected_json(
+            card.suspected_files_json
+        ),
+        reproduction_verdict=card.reproduction_verdict,
+        reproduction_log=card.reproduction_log,
+        admin_note=admin_note,
+    )
+
+    labels: list[str] = []
+    if card.proposed_labels_json and isinstance(card.proposed_labels_json, list):
+        labels = [str(x) for x in card.proposed_labels_json if str(x).strip()]
+
+    try:
+        created = await client.create_issue(
+            repo.full_name, title=title, body=body, labels=labels or None
+        )
+    except Exception as e:
+        logger.exception("failed to create GitHub issue card_id=%s", card.id)
+        raise HTTPException(
+            status_code=502, detail=f"failed to create GitHub issue: {e}"
+        ) from e
+
+    github_number = created.get("number")
+    if isinstance(github_number, int):
+        card.github_issue_number = github_number
+    card.final_comment = body
+    logger.info(
+        "feedback card_id=%s opened github issue %s#%s",
+        card.id,
+        repo.full_name,
+        github_number,
+    )
+
+
+async def _load_feedback_reports_for_card(
+    session: AsyncSession, card: TriageCard
+) -> list[FeedbackReport]:
+    ids = card.feedback_report_ids_json or []
+    if not isinstance(ids, list) or not ids:
+        return []
+    rows = (
+        await session.execute(
+            select(FeedbackReport)
+            .where(FeedbackReport.id.in_([int(i) for i in ids]))
+            .order_by(FeedbackReport.created_at.asc())
+        )
+    ).scalars().all()
+    return list(rows)
 
 
 def _card_response(
@@ -236,11 +416,27 @@ def _card_response(
             )
             for item in card.duplicates_json
         ]
+    feedback_ids = card.feedback_report_ids_json or []
+    if not isinstance(feedback_ids, list):
+        feedback_ids = []
+    issue_url: str | None = None
+    # Both github- and feedback-sourced cards can link to a GitHub
+    # issue. For ``source='github'`` the number lives on ``issue_number``;
+    # for approved feedback cards it's on ``github_issue_number``.
+    linked_number = card.github_issue_number or (
+        card.issue_number if (card.source or "github") == "github" else None
+    )
+    if linked_number:
+        issue_url = f"https://github.com/{repo_full_name}/issues/{linked_number}"
     return CardResponse(
         id=card.id,
         repo_full_name=repo_full_name,
         repo_default_branch=repo_default_branch,
         issue_number=card.issue_number,
+        source=card.source or "github",
+        github_issue_number=card.github_issue_number,
+        github_issue_url=issue_url,
+        feedback_report_count=len(feedback_ids),
         status=card.status,
         classification=card.classification,
         confidence=float(card.confidence) if card.confidence is not None else None,

@@ -7,6 +7,7 @@ import {
   History,
   Inbox,
   LogOut,
+  MessageSquareWarning,
   Rocket,
   Settings,
   Sparkles,
@@ -26,6 +27,7 @@ type NavItem = {
 const NAV: NavItem[] = [
   { href: "/dashboard", label: "Queue", icon: Inbox },
   { href: "/history", label: "History", icon: History },
+  { href: "/feedback", label: "Feedback apps", icon: MessageSquareWarning },
   { href: "/onboarding", label: "Onboarding", icon: Rocket },
   { href: "/github", label: "GitHub", icon: Github },
   { href: "/settings", label: "Settings", icon: Settings },

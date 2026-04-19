@@ -442,7 +442,11 @@ function KeyStep() {
     }
   };
 
-  const done = (keys.data?.length ?? 0) > 0 && testResult?.ok;
+  // Any saved key counts as "done" — a prior session may have saved+tested
+  // the key already, and on a fresh mount testResult is null. Don't make the
+  // user re-enter a key they've already configured.
+  const hasAnyKey = (keys.data?.length ?? 0) > 0;
+  const done = hasAnyKey;
 
   return (
     <section className="rounded-lg border bg-card p-6 shadow-sm">
@@ -504,6 +508,33 @@ function KeyStep() {
             : `failed: ${testResult.error}`}
         </div>
       )}
+
+      {hasAnyKey && (
+        <div className="mt-5">
+          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Saved keys
+          </div>
+          <ul className="mt-2 divide-y rounded-md border">
+            {(keys.data ?? []).map((k) => (
+              <li
+                key={k.id}
+                className="flex items-center justify-between px-3 py-2 text-sm"
+              >
+                <div>
+                  <span className="font-medium capitalize">{k.provider}</span>
+                  <span className="ml-2 font-mono text-xs text-muted-foreground">
+                    {k.masked_hint}
+                  </span>
+                </div>
+                <span className="text-xs text-muted-foreground">
+                  saved {new Date(k.created_at).toLocaleDateString()}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {done && (
         <div className="mt-5 flex items-center gap-3">
           <Link

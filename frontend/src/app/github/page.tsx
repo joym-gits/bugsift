@@ -7,6 +7,7 @@ import {
   Check,
   ExternalLink,
   Github,
+  Inbox,
   KeyRound,
   RefreshCw,
   RotateCcw,
@@ -20,11 +21,14 @@ import {
   type AppDetails,
   type HydrateResult,
   type InstallationOut,
+  type Repo,
   useAppDetails,
+  useBackfillRepo,
   useDeleteApp,
   useHydrateRepos,
   useInstallations,
   useMe,
+  useRepos,
 } from "@/lib/hooks";
 
 export default function GithubSettingsPage() {
@@ -64,6 +68,7 @@ export default function GithubSettingsPage() {
                 installations={installations.data ?? []}
                 appSlug={details.data.slug ?? null}
               />
+              <ReposSection signedIn={signedIn} />
               <DangerZone
                 details={details.data}
                 confirming={confirmDelete}
@@ -338,6 +343,103 @@ function InstallationsSection({
                   Manage on GitHub
                 </a>
               )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function ReposSection({ signedIn }: { signedIn: boolean }) {
+  const repos = useRepos(signedIn);
+  const backfill = useBackfillRepo();
+  const [status, setStatus] = useState<{
+    repoId: number;
+    kind: "ok" | "err";
+    message: string;
+  } | null>(null);
+
+  return (
+    <section className="rounded-lg border bg-card p-6 shadow-sm">
+      <div className="mb-1 flex items-center gap-2">
+        <Inbox className="h-4 w-4 text-muted-foreground" />
+        <h2 className="text-base font-medium">Synced repos</h2>
+      </div>
+      <p className="text-sm text-muted-foreground">
+        When bugsift adds a repo, it automatically pulls every open issue and
+        runs them through triage so the dashboard reflects the current state.
+        Use <strong>Triage existing issues</strong> to re-run that pass on
+        demand &mdash; useful if a repo was attached before the App config was
+        finalised, or to pick up issues opened while the tunnel was offline.
+      </p>
+
+      {repos.isLoading ? (
+        <Skeleton className="mt-4 h-16 w-full" />
+      ) : (repos.data ?? []).length === 0 ? (
+        <p className="mt-4 text-sm text-muted-foreground">
+          No repos synced yet. Install the App on a repo, or click{" "}
+          <em>Re-sync repos</em> above if an install event arrived empty.
+        </p>
+      ) : (
+        <ul className="mt-4 divide-y">
+          {(repos.data ?? []).map((repo: Repo) => (
+            <li
+              key={repo.id}
+              className="flex items-center justify-between gap-4 py-3 text-sm"
+            >
+              <div className="min-w-0">
+                <div className="truncate font-medium">{repo.full_name}</div>
+                <div className="mt-0.5 text-xs text-muted-foreground">
+                  {repo.primary_language ?? "unknown language"} ·{" "}
+                  {repo.default_branch} · indexing:{" "}
+                  <span className="font-mono">{repo.indexing_status}</span>
+                </div>
+                {status?.repoId === repo.id && (
+                  <div
+                    className={
+                      "mt-1 text-xs " +
+                      (status.kind === "ok"
+                        ? "text-primary"
+                        : "text-destructive")
+                    }
+                  >
+                    {status.message}
+                  </div>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={async () => {
+                  setStatus(null);
+                  try {
+                    await backfill.mutateAsync(repo.id);
+                    setStatus({
+                      repoId: repo.id,
+                      kind: "ok",
+                      message:
+                        "Queued. Existing open issues will appear in the Queue as triage completes.",
+                    });
+                  } catch (e) {
+                    setStatus({
+                      repoId: repo.id,
+                      kind: "err",
+                      message:
+                        e instanceof ApiError
+                          ? e.message
+                          : e instanceof Error
+                            ? e.message
+                            : "backfill failed",
+                    });
+                  }
+                }}
+                disabled={backfill.isPending}
+                className="shrink-0 inline-flex h-8 items-center gap-1.5 rounded-md border border-input bg-background px-3 text-xs font-medium hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
+              >
+                {backfill.isPending && backfill.variables === repo.id
+                  ? "queueing…"
+                  : "Triage existing issues"}
+              </button>
             </li>
           ))}
         </ul>

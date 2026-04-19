@@ -70,7 +70,9 @@ def test_edit_updates_draft(client, pending_card) -> None:
     assert r.json()["draft_comment"] == "edited body"
 
 
-def test_approve_posts_comment_and_applies_labels(client, pending_card) -> None:
+def test_approve_posts_comment_and_applies_labels(
+    client, pending_card, monkeypatch: pytest.MonkeyPatch
+) -> None:
     card, repo, install = pending_card
 
     fake_client = AsyncMock()
@@ -78,11 +80,22 @@ def test_approve_posts_comment_and_applies_labels(client, pending_card) -> None:
     fake_client.add_labels = AsyncMock()
     fake_client.close_issue = AsyncMock()
 
-    captured_installation_id: list[int] = []
+    captured: dict = {}
 
-    def factory(installation_id: int):
-        captured_installation_id.append(installation_id)
+    def factory(installation_id: int, **kwargs):
+        captured["installation_id"] = installation_id
+        captured["kwargs"] = kwargs
         return fake_client
+
+    # The approve path resolves App creds from the DB before constructing
+    # the client; stub that so the test doesn't need a real config row.
+    from bugsift.api import cards as cards_route
+    from types import SimpleNamespace
+
+    async def _fake_cfg(_session):
+        return SimpleNamespace(app_id="app-1", private_key_pem="pem")
+
+    monkeypatch.setattr(cards_route.app_config, "load_app_config", _fake_cfg)
 
     client.app.dependency_overrides[get_github_client_factory] = lambda: factory
     try:
@@ -94,7 +107,8 @@ def test_approve_posts_comment_and_applies_labels(client, pending_card) -> None:
     body = r.json()
     assert body["status"] == "posted"
     assert body["final_comment"] == "thanks for the report"
-    assert captured_installation_id == [install.github_installation_id]
+    assert captured["installation_id"] == install.github_installation_id
+    assert captured["kwargs"] == {"app_id": "app-1", "private_key_pem": "pem"}
     fake_client.post_issue_comment.assert_awaited_once()
     fake_client.add_labels.assert_awaited_once()
     fake_client.close_issue.assert_not_awaited()

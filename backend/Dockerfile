@@ -18,6 +18,11 @@ COPY alembic.ini /app/alembic.ini
 
 RUN pip install -e .
 
+# Pre-download the default fastembed model so the first retrieval/dedup
+# run doesn't pay a ~130 MB cold-start tax against the user's event loop.
+ENV FASTEMBED_CACHE_PATH=/app/.fastembed_cache
+RUN python -c "from fastembed import TextEmbedding; TextEmbedding(model_name='BAAI/bge-small-en-v1.5')"
+
 ENV PYTHONPATH=/app/src
 
 EXPOSE 8000

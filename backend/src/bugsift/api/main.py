@@ -11,6 +11,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from bugsift import __version__
 from bugsift.api.auth import router as auth_router
 from bugsift.api.cards import router as cards_router
+from bugsift.api.feedback import router as feedback_router
 from bugsift.api.github import router as github_router
 from bugsift.api.github_settings import router as github_settings_router
 from bugsift.api.keys import router as keys_router
@@ -19,10 +20,20 @@ from bugsift.api.manifest import router as manifest_router
 from bugsift.api.repos import router as repos_router
 from bugsift.api.usage import router as usage_router
 from bugsift.api.webhooks import router as webhooks_router
+from bugsift.api.widget import router as widget_router
 from bugsift.config import get_settings
 from bugsift.github import smee
 
 logger = logging.getLogger(__name__)
+
+# Without this, gunicorn's uvicorn worker leaves the root logger at WARNING,
+# so our `logger.info(...)` calls (webhook dispatch, enqueue traces) silently
+# vanish — hiding exactly the diagnostics we need when issues don't appear.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    force=True,
+)
 
 
 @asynccontextmanager
@@ -71,6 +82,32 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # The feedback widget runs on arbitrary third-party origins and never
+    # needs cookies, so it gets its own wide-open CORS layer scoped to the
+    # ingest path and the widget script. The dashboard CORS above is still
+    # the only one that allows credentials.
+    @app.middleware("http")
+    async def _widget_cors(request, call_next):
+        path = request.url.path
+        is_widget_path = path.endswith("/ingest/feedback") or path.endswith("/widget.js")
+        if is_widget_path and request.method == "OPTIONS":
+            # Answer the CORS preflight directly — the router never sees it.
+            from fastapi import Response as _Response
+            return _Response(
+                status_code=204,
+                headers={
+                    "Access-Control-Allow-Origin": request.headers.get("origin", "*"),
+                    "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+                    "Access-Control-Allow-Headers": "Content-Type, X-Bugsift-App-Key",
+                    "Access-Control-Max-Age": "600",
+                },
+            )
+        response = await call_next(request)
+        if is_widget_path:
+            response.headers["Access-Control-Allow-Origin"] = request.headers.get("origin", "*")
+            response.headers["Vary"] = "Origin"
+        return response
+
     @app.get("/health")
     async def health() -> dict[str, str]:
         return {"status": "ok", "version": __version__}
@@ -85,6 +122,8 @@ def create_app() -> FastAPI:
     app.include_router(usage_router)
     app.include_router(manifest_router)
     app.include_router(github_settings_router)
+    app.include_router(feedback_router)
+    app.include_router(widget_router)
 
     return app
 

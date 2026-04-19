@@ -42,6 +42,7 @@ _enqueue_triage = enqueue_jobs.enqueue_triage
 _enqueue_index_repo = enqueue_jobs.enqueue_index_repo
 _enqueue_index_repo_delta = enqueue_jobs.enqueue_index_repo_delta
 _enqueue_embed_issue = enqueue_jobs.enqueue_embed_issue
+_enqueue_backfill_open_issues = enqueue_jobs.enqueue_backfill_open_issues
 
 
 @router.post("/github", status_code=status.HTTP_202_ACCEPTED)
@@ -69,38 +70,58 @@ async def github_webhook(
 
     event = (x_github_event or "").lower()
     action = payload.get("action")
+    # Log every incoming event + action + final outcome so diagnosing
+    # "my issue didn't show up" is one `docker compose logs` away.
+    outcome = "ignored"
+    try:
+        if event == "ping":
+            outcome = "pong"
+            return {"status": "pong"}
 
-    if event == "ping":
-        return {"status": "pong"}
+        if event == "installation":
+            await _handle_installation(session, action, payload)
+            outcome = "ok"
+            return {"status": "ok"}
 
-    if event == "installation":
-        await _handle_installation(session, action, payload)
-        return {"status": "ok"}
+        if event == "installation_repositories":
+            await _handle_installation_repositories(session, action, payload)
+            outcome = "ok"
+            return {"status": "ok"}
 
-    if event == "installation_repositories":
-        await _handle_installation_repositories(session, action, payload)
-        return {"status": "ok"}
+        if event == "issues" and action == "opened":
+            installation_id = (payload.get("installation") or {}).get("id")
+            if installation_id is not None:
+                allowed = await allow_installation_event(int(installation_id))
+                if not allowed:
+                    outcome = "rate_limited"
+                    return {"status": "rate_limited"}
+            _enqueue_triage(payload)
+            await _enqueue_embed_issue_for_payload(session, payload)
+            outcome = "queued"
+            return {"status": "queued"}
 
-    if event == "issues" and action == "opened":
-        installation_id = (payload.get("installation") or {}).get("id")
-        if installation_id is not None:
-            allowed = await allow_installation_event(int(installation_id))
-            if not allowed:
-                return {"status": "rate_limited"}
-        _enqueue_triage(payload)
-        await _enqueue_embed_issue_for_payload(session, payload)
-        return {"status": "queued"}
+        if event == "issues" and action == "edited":
+            await _enqueue_embed_issue_for_payload(session, payload)
+            outcome = "queued"
+            return {"status": "queued"}
 
-    if event == "issues" and action == "edited":
-        await _enqueue_embed_issue_for_payload(session, payload)
-        return {"status": "queued"}
+        if event == "push":
+            await _handle_push(session, payload)
+            outcome = "ok"
+            return {"status": "ok"}
 
-    if event == "push":
-        await _handle_push(session, payload)
-        return {"status": "ok"}
-
-    logger.debug("ignoring webhook event=%s action=%s", event, action)
-    return {"status": "ignored"}
+        return {"status": "ignored"}
+    finally:
+        repo_full_name = (payload.get("repository") or {}).get("full_name")
+        issue_number = (payload.get("issue") or {}).get("number")
+        logger.info(
+            "webhook event=%s action=%s outcome=%s repo=%s issue=%s",
+            event,
+            action,
+            outcome,
+            repo_full_name,
+            issue_number,
+        )
 
 
 async def _handle_installation(
@@ -138,6 +159,10 @@ async def _handle_installation(
         await session.commit()
         for repo_id in new_repos:
             _enqueue_index_repo(repo_id)
+            # Every brand-new repo gets a backfill pass so existing open
+            # issues land in the queue, not just issues opened after we
+            # were installed.
+            _enqueue_backfill_open_issues(repo_id)
         return
     elif action == "deleted":
         if installation is not None:
@@ -169,6 +194,7 @@ async def _handle_installation_repositories(
         await session.commit()
         for repo_id in new_repos:
             _enqueue_index_repo(repo_id)
+            _enqueue_backfill_open_issues(repo_id)
         return
     elif action == "removed":
         removed_ids = [r.get("id") for r in (payload.get("repositories_removed") or []) if r.get("id")]
@@ -259,6 +285,15 @@ async def _upsert_repos(
         if existing is not None:
             existing.installation_id = installation.id
             existing.full_name = repo_payload.get("full_name") or existing.full_name
+            # Refresh mutable metadata on every hydrate so values that were
+            # empty at install time (e.g. ``language`` before any commit)
+            # catch up automatically.
+            payload_lang = repo_payload.get("language")
+            if payload_lang:
+                existing.primary_language = payload_lang
+            payload_default = repo_payload.get("default_branch")
+            if payload_default:
+                existing.default_branch = payload_default
             continue
         repo = Repo(
             installation_id=installation.id,

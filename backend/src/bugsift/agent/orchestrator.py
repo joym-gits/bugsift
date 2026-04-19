@@ -82,6 +82,12 @@ async def run(
         state = await reproduction_step.run(
             state, provider, allowed_languages=reproduce_languages
         )
+        # If reproduction actually hit the code (succeeded or failed with a
+        # real traceback), use that traceback's file paths to augment the
+        # suspect list — these are guaranteed to be on the failing path,
+        # so the maintainer sees them even if retrieval didn't.
+        if session is not None and state.reproduction_log:
+            state = await retrieval_step.refine_with_repro(state, session=session)
 
     state = await comment_step.run(state, provider)
     state.status = "complete"

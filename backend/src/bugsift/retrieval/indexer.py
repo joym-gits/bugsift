@@ -42,10 +42,18 @@ class RepoIndexer:
         session: AsyncSession,
         embed_provider,
         choice: EmbeddingChoice,
+        *,
+        app_id: str | None = None,
+        private_key_pem: str | None = None,
     ) -> None:
+        """``app_id`` + ``private_key_pem`` let the caller inject the
+        DB-stored GitHub App credentials; required unless the old
+        env-based ``Settings`` path is in use."""
         self._session = session
         self._embed = embed_provider
         self._choice = choice
+        self._app_id = app_id
+        self._private_key_pem = private_key_pem
 
     async def full_index(
         self, repo: Repo, installation_id: int, *, ref: str | None = None
@@ -128,7 +136,7 @@ class RepoIndexer:
         if not chunks:
             return 0
         embeddings = await _embed_many(self._embed, [c.content for c in chunks])
-        dim_col = "embedding_1536" if self._choice.dim == 1536 else "embedding_768"
+        dim_col = _dim_column(self._choice.dim)
         rows = [
             {
                 "repo_id": repo_id,
@@ -165,7 +173,11 @@ class RepoIndexer:
     async def _download_tarball(
         self, repo_full_name: str, ref: str, installation_id: int, dest: Path
     ) -> Path | None:
-        token = await get_installation_token(installation_id)
+        token = await get_installation_token(
+            installation_id,
+            app_id=self._app_id,
+            private_key_pem=self._private_key_pem,
+        )
         url = f"https://api.github.com/repos/{repo_full_name}/tarball/{ref}"
         headers = {
             "Authorization": f"Bearer {token}",
@@ -192,7 +204,11 @@ class RepoIndexer:
     async def _fetch_file(
         self, repo_full_name: str, ref: str, path: str, installation_id: int
     ) -> str | None:
-        token = await get_installation_token(installation_id)
+        token = await get_installation_token(
+            installation_id,
+            app_id=self._app_id,
+            private_key_pem=self._private_key_pem,
+        )
         url = f"https://api.github.com/repos/{repo_full_name}/contents/{path}?ref={ref}"
         headers = {
             "Authorization": f"Bearer {token}",
@@ -211,6 +227,16 @@ class RepoIndexer:
         if not raw or len(raw) > 500 * 1024 or is_binary(raw[:8192]):
             return None
         return raw.decode("utf-8", errors="replace")
+
+
+def _dim_column(dim: int) -> str:
+    if dim == 1536:
+        return "embedding_1536"
+    if dim == 768:
+        return "embedding_768"
+    if dim == 384:
+        return "embedding_384"
+    raise ValueError(f"unsupported embedding dim: {dim}")
 
 
 async def _embed_many(provider, texts: list[str]) -> list[list[float]]:

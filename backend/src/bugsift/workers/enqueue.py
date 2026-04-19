@@ -12,6 +12,8 @@ from redis import Redis
 from rq import Queue
 
 from bugsift.config import get_settings
+from bugsift.workers import backfill as backfill_jobs
+from bugsift.workers import feedback_triage as feedback_triage_jobs
 from bugsift.workers import indexing as indexing_jobs
 from bugsift.workers import triage as triage_jobs
 
@@ -45,3 +47,13 @@ def enqueue_embed_issue(
     repo_id: int, issue_number: int, title: str, body: str
 ) -> None:
     _queue("indexing").enqueue(indexing_jobs.embed_issue, repo_id, issue_number, title, body)
+
+
+def enqueue_backfill_open_issues(repo_id: int) -> None:
+    _queue("indexing").enqueue(backfill_jobs.backfill_open_issues, repo_id)
+
+
+def enqueue_feedback_triage(report_id: int) -> None:
+    """Kick a widget-sourced feedback report through the triage pipeline.
+    Same ``triage`` queue as GitHub issues so the worker sees one stream."""
+    _queue("triage").enqueue(feedback_triage_jobs.process_feedback_report, report_id)

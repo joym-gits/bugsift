@@ -54,10 +54,20 @@ async def test_falls_back_to_ollama(session) -> None:
     assert choice.dim == 768
 
 
-async def test_anthropic_only_raises(session) -> None:
+async def test_anthropic_only_falls_back_to_local(session) -> None:
+    """Anthropic has no embeddings API; without a hosted embedding key we
+    fall through to the built-in ``local`` provider (fastembed / bge-small)."""
     user, repo = await _seed(session, providers=["anthropic"])
-    with pytest.raises(EmbeddingUnavailable):
-        await get_embedder_for_repo(session, repo, user.id)
+    _, choice = await get_embedder_for_repo(session, repo, user.id)
+    assert choice.provider_name == "local"
+    assert choice.dim == 384
+
+
+async def test_no_keys_falls_back_to_local(session) -> None:
+    user, repo = await _seed(session, providers=[])
+    _, choice = await get_embedder_for_repo(session, repo, user.id)
+    assert choice.provider_name == "local"
+    assert choice.dim == 384
 
 
 async def test_pinned_repo_respects_choice(session) -> None:

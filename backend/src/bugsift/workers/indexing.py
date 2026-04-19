@@ -22,12 +22,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bugsift.db.models import Installation, IssueEmbedding, Repo
 from bugsift.db.session import SessionLocal
+from bugsift.github import config as app_config
 from bugsift.retrieval.embedding import (
     EmbeddingUnavailable,
     get_embedder_for_repo,
     model_slug,
 )
-from bugsift.retrieval.indexer import RepoIndexer
+from bugsift.retrieval.indexer import RepoIndexer, _dim_column
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +69,13 @@ async def _index_repo(repo_id: int) -> None:
             logger.warning("index_repo: repo_id=%s not found", repo_id)
             return
         install = await session.get(Installation, repo.installation_id)
+        cfg = await app_config.load_app_config(session)
+        if cfg is None:
+            logger.warning(
+                "index_repo: %s — GitHub App not configured yet; leaving repo pending",
+                repo.full_name,
+            )
+            return
         try:
             provider, choice = await _with_embedder(session, repo)
         except EmbeddingUnavailable as e:
@@ -76,7 +84,13 @@ async def _index_repo(repo_id: int) -> None:
             logger.warning("index_repo: %s — %s", repo.full_name, e)
             return
 
-        indexer = RepoIndexer(session, provider, choice)
+        indexer = RepoIndexer(
+            session,
+            provider,
+            choice,
+            app_id=cfg.app_id,
+            private_key_pem=cfg.private_key_pem,
+        )
         written = await indexer.full_index(repo, install.github_installation_id)
         logger.info(
             "index_repo %s: wrote %d chunks using %s",
@@ -94,12 +108,25 @@ async def _index_repo_delta(
         if repo is None:
             return
         install = await session.get(Installation, repo.installation_id)
+        cfg = await app_config.load_app_config(session)
+        if cfg is None:
+            logger.warning(
+                "index_repo_delta: %s — GitHub App not configured; skipping",
+                repo.full_name,
+            )
+            return
         try:
             provider, choice = await _with_embedder(session, repo)
         except EmbeddingUnavailable as e:
             logger.warning("index_repo_delta: %s — %s; skipping", repo.full_name, e)
             return
-        indexer = RepoIndexer(session, provider, choice)
+        indexer = RepoIndexer(
+            session,
+            provider,
+            choice,
+            app_id=cfg.app_id,
+            private_key_pem=cfg.private_key_pem,
+        )
         written = await indexer.delta_index(
             repo,
             install.github_installation_id,
@@ -151,27 +178,31 @@ async def _embed_issue(repo_id: int, issue_number: int, title: str, body: str) -
             )
             return
 
-        dim_col = "embedding_1536" if choice.dim == 1536 else "embedding_768"
-        other_col = "embedding_768" if dim_col == "embedding_1536" else "embedding_1536"
+        dim_col = _dim_column(choice.dim)
+        all_cols = {"embedding_1536", "embedding_768", "embedding_384"}
+        other_cols = all_cols - {dim_col}
         values = {
             "repo_id": repo_id,
             "issue_number": issue_number,
             "title": title[:500],
             "body_excerpt": (body or "")[:2000],
             dim_col: vector,
-            other_col: None,
             "updated_at": datetime.now(UTC),
         }
+        for oc in other_cols:
+            values[oc] = None
         stmt = pg_insert(IssueEmbedding).values(values)
+        update_set = {
+            "title": stmt.excluded.title,
+            "body_excerpt": stmt.excluded.body_excerpt,
+            dim_col: getattr(stmt.excluded, dim_col),
+            "updated_at": datetime.now(UTC),
+        }
+        for oc in other_cols:
+            update_set[oc] = None
         stmt = stmt.on_conflict_do_update(
             constraint="uq_issue_embedding",
-            set_={
-                "title": stmt.excluded.title,
-                "body_excerpt": stmt.excluded.body_excerpt,
-                dim_col: getattr(stmt.excluded, dim_col),
-                other_col: None,
-                "updated_at": datetime.now(UTC),
-            },
+            set_=update_set,
         )
         await session.execute(stmt)
         await session.commit()

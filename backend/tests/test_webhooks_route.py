@@ -42,6 +42,7 @@ def _stub_indexing_enqueue(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(webhook_route, "_enqueue_index_repo", lambda *a, **kw: None)
     monkeypatch.setattr(webhook_route, "_enqueue_index_repo_delta", lambda *a, **kw: None)
     monkeypatch.setattr(webhook_route, "_enqueue_embed_issue", lambda *a, **kw: None)
+    monkeypatch.setattr(webhook_route, "_enqueue_backfill_open_issues", lambda *a, **kw: None)
 
 
 def _post(client, secret: str, event: str, body: dict):
@@ -138,6 +139,62 @@ async def test_issues_opened_enqueues_and_respects_rate_limit(
     assert r2.status_code == 202
     assert r2.json()["status"] == "rate_limited"
     assert len(_capture_enqueue) == 1  # did not enqueue the second
+
+
+@pytest.mark.asyncio
+async def test_installation_created_enqueues_backfill(
+    client, session, _configure_webhook_secret, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: list[int] = []
+    monkeypatch.setattr(
+        webhook_route, "_enqueue_backfill_open_issues", lambda repo_id: captured.append(repo_id)
+    )
+
+    payload = {
+        "action": "created",
+        "installation": {"id": 5010},
+        "repositories": [
+            {"id": 8100, "full_name": "org/repoA", "default_branch": "main"},
+            {"id": 8101, "full_name": "org/repoB", "default_branch": "main"},
+        ],
+    }
+    r = _post(client, _configure_webhook_secret, "installation", payload)
+    assert r.status_code == 202
+
+    repos = (
+        await session.execute(select(Repo).where(Repo.github_repo_id.in_([8100, 8101])))
+    ).scalars().all()
+    assert {r.full_name for r in repos} == {"org/repoA", "org/repoB"}
+    assert sorted(captured) == sorted(r.id for r in repos)
+
+
+@pytest.mark.asyncio
+async def test_installation_repositories_added_enqueues_backfill(
+    client, session, _configure_webhook_secret, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install = Installation(github_installation_id=5011)
+    session.add(install)
+    await session.commit()
+
+    captured: list[int] = []
+    monkeypatch.setattr(
+        webhook_route, "_enqueue_backfill_open_issues", lambda repo_id: captured.append(repo_id)
+    )
+
+    payload = {
+        "action": "added",
+        "installation": {"id": 5011},
+        "repositories_added": [
+            {"id": 8200, "full_name": "org/newrepo", "default_branch": "main"},
+        ],
+    }
+    r = _post(client, _configure_webhook_secret, "installation_repositories", payload)
+    assert r.status_code == 202
+
+    repo = (
+        await session.execute(select(Repo).where(Repo.github_repo_id == 8200))
+    ).scalar_one()
+    assert captured == [repo.id]
 
 
 @pytest.mark.asyncio

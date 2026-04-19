@@ -116,11 +116,25 @@ class RepoConfig(Base):
 
 class TriageCard(Base):
     __tablename__ = "triage_cards"
-    __table_args__ = (UniqueConstraint("repo_id", "issue_number", name="uq_repo_issue"),)
+    # The old ``uq_repo_issue`` constraint is now a partial index in the
+    # migration (unique only when ``source='github'``) so multiple
+    # feedback-sourced cards per repo are allowed. Feedback cards carry
+    # ``issue_number=None`` until the operator approves and a real GitHub
+    # issue is opened for them.
+    __table_args__ = ()
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     repo_id: Mapped[int] = mapped_column(ForeignKey("repos.id", ondelete="CASCADE"), nullable=False, index=True)
-    issue_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Where this card came from. ``github`` = webhook/backfill of a real
+    # issue. ``feedback`` = widget-submitted user report that has not
+    # become a GitHub issue yet.
+    source: Mapped[str] = mapped_column(String(16), nullable=False, default="github", index=True)
+    issue_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # For ``source='feedback'`` cards: list of feedback_report ids that
+    # collapsed into this one card (slice 3 dedup). Always at least one.
+    feedback_report_ids_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    # Populated on approve: the GitHub issue number the card turned into.
+    github_issue_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending", index=True)
     classification: Mapped[str | None] = mapped_column(String(32), nullable=True)
     confidence: Mapped[float | None] = mapped_column(Numeric(4, 3), nullable=True)
@@ -150,11 +164,12 @@ class CodeChunk(Base):
     start_line: Mapped[int] = mapped_column(Integer, nullable=False)
     end_line: Mapped[int] = mapped_column(Integer, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    # Exactly one of the two embedding columns is populated per row; the
-    # repo's embedding_dim tells callers which to use. A CHECK constraint in
-    # the migration enforces the XOR.
+    # Exactly one of the three embedding columns is populated per row; the
+    # repo's embedding_dim tells callers which to use. The 384 column hosts
+    # the built-in ``local`` provider (fastembed / bge-small-en-v1.5).
     embedding_1536: Mapped[list[float] | None] = mapped_column(Vector(1536), nullable=True)
     embedding_768: Mapped[list[float] | None] = mapped_column(Vector(768), nullable=True)
+    embedding_384: Mapped[list[float] | None] = mapped_column(Vector(384), nullable=True)
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     indexed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
@@ -170,6 +185,7 @@ class IssueEmbedding(Base):
     body_excerpt: Mapped[str] = mapped_column(Text, nullable=False, default="")
     embedding_1536: Mapped[list[float] | None] = mapped_column(Vector(1536), nullable=True)
     embedding_768: Mapped[list[float] | None] = mapped_column(Vector(768), nullable=True)
+    embedding_384: Mapped[list[float] | None] = mapped_column(Vector(384), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
@@ -188,6 +204,76 @@ class LLMUsage(Base):
     cost_usd: Mapped[float] = mapped_column(Numeric(10, 6), nullable=False, default=0)
     step_name: Mapped[str] = mapped_column(String(32), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+
+class FeedbackApp(Base):
+    """An app the operator embeds the bugsift widget in.
+
+    Each app gets a ``public_key`` (safe to ship in the widget's ``<script>``
+    tag) and a default GitHub repo where approved feedback becomes issues.
+    The ``allowed_origins`` list narrows which browser origins may POST to
+    the ingest endpoint — ``None`` means accept any origin (useful for
+    mobile / non-browser callers).
+    """
+
+    __tablename__ = "feedback_apps"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    public_key: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    allowed_origins_json: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
+    default_repo_id: Mapped[int | None] = mapped_column(
+        ForeignKey("repos.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class FeedbackReport(Base):
+    """A single bug report submitted through the widget.
+
+    Multiple reports can collapse to one ``TriageCard`` (see slice 3
+    dedup); ``card_id`` is filled in once triage has decided what group
+    this belongs to. Raw body + captured browser context stay on this
+    row so we can always rebuild the card or re-run the pipeline.
+    """
+
+    __tablename__ = "feedback_reports"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    app_id: Mapped[int] = mapped_column(
+        ForeignKey("feedback_apps.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    card_id: Mapped[int | None] = mapped_column(
+        ForeignKey("triage_cards.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    body_text: Mapped[str] = mapped_column(Text, nullable=False)
+    url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(Text, nullable=True)
+    app_version: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    console_log: Mapped[str | None] = mapped_column(Text, nullable=True)
+    screenshot_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # sha256 of the reporter id the host app passed in (never plaintext).
+    reporter_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    # Anything else the widget sent — last N clicks, feature flags, etc.
+    client_meta_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    # sha256 of a normalized body for deterministic dedup of the same user
+    # submitting twice in a row.
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    # Embedding of the report body, computed at triage time using the
+    # built-in local provider (384-dim / bge-small-en-v1.5). Used to
+    # collapse near-duplicate user reports into one card.
+    embedding_384: Mapped[list[float] | None] = mapped_column(Vector(384), nullable=True)
+    # Client IP at ingest time — kept short-term for rate limiting and
+    # abuse forensics only; no long-term analytics use.
+    ingest_ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
 
 class GithubAppCredentials(Base):

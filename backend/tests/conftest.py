@@ -13,6 +13,8 @@ from bugsift.api.main import create_app
 from bugsift.config import get_settings
 from bugsift.db.models import (
     Base,
+    FeedbackApp,
+    FeedbackReport,
     GithubAppCredentials,
     Installation,
     LLMUsage,
@@ -71,6 +73,8 @@ async def db_engine() -> AsyncIterator:
                 TriageCard.__table__,
                 LLMUsage.__table__,
                 GithubAppCredentials.__table__,
+                FeedbackApp.__table__,
+                FeedbackReport.__table__,
             ],
         )
     yield engine

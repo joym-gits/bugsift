@@ -74,7 +74,11 @@ export type Card = {
   id: number;
   repo_full_name: string;
   repo_default_branch?: string | null;
-  issue_number: number;
+  issue_number: number | null;
+  source?: "github" | "feedback";
+  github_issue_number?: number | null;
+  github_issue_url?: string | null;
+  feedback_report_count?: number;
   status: string;
   classification: string | null;
   confidence?: number | null;
@@ -96,6 +100,26 @@ export type Card = {
   final_comment?: string | null;
   created_at: string;
 };
+
+export type CardFeedbackReport = {
+  id: number;
+  body_text: string;
+  url: string | null;
+  user_agent: string | null;
+  app_version: string | null;
+  console_log: string | null;
+  reporter_hash: string | null;
+  created_at: string;
+};
+
+export function useCardFeedbackReports(cardId: number | null, enabled: boolean) {
+  return useQuery<CardFeedbackReport[]>({
+    queryKey: ["card-feedback", cardId],
+    queryFn: () =>
+      apiFetch<CardFeedbackReport[]>(`/cards/${cardId}/reports`),
+    enabled: enabled && cardId !== null,
+  });
+}
 
 export type RepoUsage = {
   repo_id: number;
@@ -274,11 +298,83 @@ export function useHydrateRepos() {
   });
 }
 
-export function useApproveCard() {
+export type BackfillResult = {
+  repo_id: number;
+  queued: boolean;
+};
+
+export type FeedbackApp = {
+  id: number;
+  name: string;
+  public_key: string;
+  default_repo_id: number | null;
+  default_repo_full_name: string | null;
+  allowed_origins: string[] | null;
+  created_at: string;
+  report_count: number;
+};
+
+export function useFeedbackApps(enabled: boolean) {
+  return useQuery<FeedbackApp[]>({
+    queryKey: ["feedback-apps"],
+    queryFn: () => apiFetch<FeedbackApp[]>("/feedback/apps"),
+    enabled,
+  });
+}
+
+export function useCreateFeedbackApp() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: {
+      name: string;
+      default_repo_id?: number | null;
+      allowed_origins?: string[] | null;
+    }) =>
+      apiFetch<FeedbackApp>("/feedback/apps", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["feedback-apps"] }),
+  });
+}
+
+export function useDeleteFeedbackApp() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: number) =>
-      apiFetch<Card>(`/cards/${id}/approve`, { method: "POST" }),
+      apiFetch<void>(`/feedback/apps/${id}`, { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["feedback-apps"] }),
+  });
+}
+
+export function useBackfillRepo() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (repoId: number) =>
+      apiFetch<BackfillResult>(`/repos/${repoId}/backfill`, { method: "POST" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["cards"] });
+      qc.invalidateQueries({ queryKey: ["repos"] });
+    },
+  });
+}
+
+export function useApproveCard() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      admin_note,
+    }: {
+      id: number;
+      admin_note?: string | null;
+    }) =>
+      apiFetch<Card>(`/cards/${id}/approve`, {
+        method: "POST",
+        body: JSON.stringify(
+          admin_note && admin_note.trim() ? { admin_note: admin_note.trim() } : {},
+        ),
+      }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["cards"] }),
   });
 }
