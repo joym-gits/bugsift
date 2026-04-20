@@ -66,6 +66,42 @@ class StartResponse(BaseModel):
 # one else to authenticate. Once an App is registered, these endpoints
 # flip back to requiring a logged-in user (and delete requires auth),
 # so a drive-by visitor can't hijack the deployment later.
+#
+# Bootstrap token: in production, the operator must present
+# ``X-Bugsift-Bootstrap-Token`` matching ``BUGSIFT_BOOTSTRAP_TOKEN`` on
+# the POST /start call. That token is printed to the backend logs on
+# first startup when no App is registered, so only someone with log
+# access can kick off onboarding. In development the check is skipped
+# (with a warning) to keep the local-laptop story friction-free.
+
+
+def _check_bootstrap_token(request: Request) -> None:
+    settings = get_settings()
+    expected = settings.bootstrap_token.strip()
+    if not expected:
+        if settings.env == "production":
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    "BUGSIFT_BOOTSTRAP_TOKEN is not configured. The operator "
+                    "must set it before the first GitHub App can be registered."
+                ),
+            )
+        logger.warning(
+            "manifest /start called without BUGSIFT_BOOTSTRAP_TOKEN configured "
+            "(development mode; production will refuse)."
+        )
+        return
+    supplied = request.headers.get("x-bugsift-bootstrap-token", "").strip()
+    if not supplied or not secrets.compare_digest(supplied, expected):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=(
+                "Missing or incorrect bootstrap token. The operator must supply "
+                "the value of BUGSIFT_BOOTSTRAP_TOKEN via the X-Bugsift-Bootstrap-"
+                "Token header before the first GitHub App can be registered."
+            ),
+        )
 
 
 @router.get("/status", response_model=AppConfigStatus)
@@ -114,6 +150,7 @@ async def start(
                 "re-register."
             ),
         )
+    _check_bootstrap_token(request)
     settings = get_settings()
     webhook_url = str(body.webhook_url) if body.webhook_url else await smee.ensure_tunnel_url()
     await smee.start_forwarder(webhook_url)
@@ -160,9 +197,14 @@ async def callback(
             timeout=15.0,
         )
     if response.status_code != 201:
+        logger.warning(
+            "github manifest code exchange returned %s: %s",
+            response.status_code,
+            response.text[:200],
+        )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"github code exchange failed: {response.status_code} {response.text[:200]}",
+            detail=f"GitHub code exchange failed (HTTP {response.status_code}).",
         )
     payload = response.json()
 

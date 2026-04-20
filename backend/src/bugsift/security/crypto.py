@@ -47,6 +47,37 @@ def decrypt(token: bytes | str) -> str:
         raise DecryptionFailed("could not decrypt api key") from e
 
 
+def validate_at_startup() -> None:
+    """Boot-time check. In production, refuses to start if the Fernet
+    key is missing or malformed; in development, logs a warning so the
+    operator finds out immediately rather than on the first key save.
+    """
+    import logging
+    from cryptography.fernet import Fernet as _Fernet
+
+    settings = get_settings()
+    key = settings.encryption_key
+    logger = logging.getLogger(__name__)
+    if not key:
+        if settings.env == "production":
+            raise RuntimeError(
+                "BUGSIFT_ENCRYPTION_KEY must be set in production. Generate one "
+                "with `python -c 'from cryptography.fernet import Fernet; "
+                "print(Fernet.generate_key().decode())'`."
+            )
+        logger.warning(
+            "BUGSIFT_ENCRYPTION_KEY is blank; api-key storage will 503 until set."
+        )
+        return
+    try:
+        _Fernet(key.encode() if isinstance(key, str) else key)
+    except Exception as e:
+        raise RuntimeError(
+            f"BUGSIFT_ENCRYPTION_KEY is not a valid Fernet key: {e}. "
+            "Keys must be 32 url-safe base64 bytes."
+        ) from e
+
+
 def mask_key(plaintext: str) -> str:
     """Return a display-safe fragment: first 3 + last 4 chars, dots in between.
 

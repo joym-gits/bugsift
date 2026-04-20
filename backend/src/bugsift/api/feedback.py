@@ -114,7 +114,8 @@ async def ingest_feedback(
                 detail="origin not allowed for this app",
             )
 
-    client_ip = (request.client.host if request.client else None) or "unknown"
+    from bugsift.security.ip_utils import client_ip as _real_client_ip
+    client_ip = _real_client_ip(request)
     if not await _allow_ingest(app.id, client_ip):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -210,6 +211,20 @@ async def create_feedback_app(
             )
 
     cleaned_origins = _clean_origins(body.allowed_origins) if body.allowed_origins else None
+    # The public key ends up in the widget's HTML source on every site
+    # that embeds it. An app with no origin allowlist is usable from
+    # anywhere once the key is observed; require at least one explicit
+    # origin so a leaked key can only be abused from places the operator
+    # already whitelisted.
+    if not cleaned_origins:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "allowed_origins must list at least one origin that will host "
+                "the widget (e.g. https://app.example.com). Leaving it empty "
+                "would let a leaked public key be used from any site."
+            ),
+        )
     if body.ticket_destination_id is not None:
         if not await _owns_ticket_destination(session, user.id, body.ticket_destination_id):
             raise HTTPException(
@@ -253,7 +268,16 @@ async def update_feedback_app(
             )
         row.default_repo_id = body.default_repo_id
     if body.allowed_origins is not None:
-        row.allowed_origins_json = _clean_origins(body.allowed_origins) or None
+        cleaned = _clean_origins(body.allowed_origins) or None
+        if not cleaned:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "allowed_origins must list at least one origin. Clearing "
+                    "it would let a leaked public key be used from any site."
+                ),
+            )
+        row.allowed_origins_json = cleaned
     if body.target_branch is not None:
         branch = body.target_branch.strip()
         row.target_branch = branch or None
@@ -934,11 +958,22 @@ async def _serialize(session: AsyncSession, app: FeedbackApp) -> FeedbackAppOut:
 
 
 async def _allow_ingest(app_id: int, client_ip: str) -> bool:
-    """Per-minute cap keyed on ``(app_id, client_ip)``. Bumps the counter;
-    first hit of a window gets a 60s TTL. Outside the limit returns False."""
+    """Per-minute caps. Both the per-``(app_id, client_ip)`` counter and
+    a global per-``app_id`` ceiling must be under the limit; the app cap
+    is ``INGEST_RATE_LIMIT_PER_MIN * 10`` so bursty legitimate traffic
+    from many users still fits, while a single bad-actor site can't
+    exhaust the backend on behalf of everyone sharing a NAT.
+    Both keys get a 60 s TTL on the first bump of a window.
+    """
     client = _redis_client()
-    key = f"rate:ingest:{app_id}:{client_ip}"
-    count = await client.incr(key)
-    if count == 1:
-        await client.expire(key, 60)
-    return count <= INGEST_RATE_LIMIT_PER_MIN
+    per_ip_key = f"rate:ingest:{app_id}:{client_ip}"
+    per_app_key = f"rate:ingest:app:{app_id}"
+    per_ip = await client.incr(per_ip_key)
+    if per_ip == 1:
+        await client.expire(per_ip_key, 60)
+    if per_ip > INGEST_RATE_LIMIT_PER_MIN:
+        return False
+    per_app = await client.incr(per_app_key)
+    if per_app == 1:
+        await client.expire(per_app_key, 60)
+    return per_app <= INGEST_RATE_LIMIT_PER_MIN * 10

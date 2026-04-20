@@ -50,17 +50,42 @@ services:
       - .env
     environment:
       BUGSIFT_ROLE: worker
+      # Talk to Docker through the restricted socket proxy. The worker
+      # never sees the real /var/run/docker.sock — if it's RCE'd, the
+      # attacker still can't mount the host, read the socket, or touch
+      # networks/volumes/secrets on the daemon.
+      DOCKER_HOST: tcp://docker-proxy:2375
     command: ["python", "-m", "bugsift.workers.runner"]
-    # The worker runs reproduction attempts by spawning sibling containers
-    # via the host's Docker daemon. Mounting the socket is a known privilege
-    # escalation surface — treat this like root on the host. See §5.5.
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      docker-proxy:
+        condition: service_started
+
+  docker-proxy:
+    # Scoped Docker-API gateway. The host socket is mounted *here only*,
+    # read-only; tecnativa/docker-socket-proxy gates each API group by
+    # env flag. We grant exactly what the repro sandbox needs
+    # (images + containers + exec, with the write methods POST/DELETE)
+    # and deny everything else (networks, volumes, swarm, secrets, host
+    # info, events, etc.). If the worker is compromised it cannot
+    # escape, map the host filesystem, or pivot to other containers.
+    image: tecnativa/docker-socket-proxy:0.3
+    restart: unless-stopped
+    environment:
+      CONTAINERS: 1
+      IMAGES: 1
+      POST: 1
+      DELETE: 1
+      # Everything else stays 0 (the image defaults):
+      # INFO, VERSION, SERVICES, NETWORKS, VOLUMES, SWARM, SECRETS,
+      # CONFIGS, PLUGINS, SYSTEM, EVENTS, NODES, SESSION, AUTH, BUILD,
+      # COMMIT, DISTRIBUTION, EXEC.
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    # No published ports: only reachable from inside the compose network.
 
   frontend:
     build:

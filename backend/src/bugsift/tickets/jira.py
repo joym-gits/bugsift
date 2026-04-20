@@ -83,8 +83,16 @@ class JiraClient:
                 "check the site URL, email, and API token."
             )
         if response.status_code != 200:
+            # Response body can contain internal error hints we don't want
+            # surfacing to the caller; log it server-side and raise a clean
+            # error so the handler doesn't leak it via HTTPException.detail.
+            logger.warning(
+                "jira /myself returned %s: %s",
+                response.status_code,
+                response.text[:200],
+            )
             raise JiraApiError(
-                f"Jira /myself returned {response.status_code}: {response.text[:200]}"
+                f"Jira /myself returned HTTP {response.status_code}"
             )
         return response.json()
 
@@ -173,8 +181,13 @@ class JiraClient:
                 f"Jira rejected credentials on issue create ({response.status_code})"
             )
         if response.status_code >= 400:
+            logger.warning(
+                "jira create-issue returned %s: %s",
+                response.status_code,
+                response.text[:400],
+            )
             raise JiraApiError(
-                f"Jira create-issue failed ({response.status_code}): {response.text[:400]}"
+                f"Jira create-issue failed (HTTP {response.status_code})"
             )
         try:
             body = response.json()
@@ -183,7 +196,8 @@ class JiraClient:
         key = str(body.get("key") or "")
         issue_id = str(body.get("id") or "")
         if not key:
-            raise JiraApiError(f"Jira create-issue missing 'key' in response: {body}")
+            logger.warning("jira create-issue missing 'key' in response body=%s", body)
+            raise JiraApiError("Jira create-issue missing 'key' in response")
         return JiraCreatedIssue(
             id=issue_id,
             key=key,

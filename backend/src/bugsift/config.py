@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     public_url: str = Field(default="http://localhost:8080", alias="BUGSIFT_PUBLIC_URL")
     encryption_key: str = Field(default="", alias="BUGSIFT_ENCRYPTION_KEY")
     session_secret: str = Field(default="", alias="BUGSIFT_SESSION_SECRET")
+    bootstrap_token: str = Field(default="", alias="BUGSIFT_BOOTSTRAP_TOKEN")
+    trust_proxy: bool = Field(default=True, alias="BUGSIFT_TRUST_PROXY")
     role: Literal["api", "worker"] = Field(default="api", alias="BUGSIFT_ROLE")
 
     database_url: str = Field(

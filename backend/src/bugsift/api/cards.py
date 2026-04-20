@@ -536,11 +536,12 @@ async def _create_jira_issue_for_card(
         )
     except JiraAuthError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
-    except JiraApiError as e:
+    except JiraApiError:
         logger.exception("failed to create Jira issue card_id=%s", card.id)
         raise HTTPException(
-            status_code=502, detail=f"failed to create Jira issue: {e}"
-        ) from e
+            status_code=502,
+            detail="Failed to create Jira issue. Server logs have the full error.",
+        )
 
     card.ticket_provider = "jira"
     card.ticket_key = created.key

@@ -25,6 +25,16 @@ RUN python -c "from fastembed import TextEmbedding; TextEmbedding(model_name='BA
 
 ENV PYTHONPATH=/app/src
 
+# Drop to an unprivileged user for runtime. /app is owned by root (the
+# install steps above ran as root); chown it so the app can still write
+# to the fastembed cache dir on first use. The worker never touches the
+# Docker socket directly now — it goes through docker-proxy — so no
+# membership in the `docker` group is needed.
+RUN groupadd --system --gid 1000 app \
+ && useradd --system --uid 1000 --gid app --home-dir /app --shell /sbin/nologin app \
+ && chown -R app:app /app
+USER app
+
 EXPOSE 8000
 
 CMD ["gunicorn", "bugsift.api.main:app", \

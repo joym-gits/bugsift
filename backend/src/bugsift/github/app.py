@@ -134,3 +134,58 @@ def clear_installation_token_cache(installation_id: int | None = None) -> None:
         _installation_token_cache.clear()
     else:
         _installation_token_cache.pop(installation_id, None)
+
+
+@dataclass
+class InstallationOwner:
+    account_login: str
+    account_id: int
+    target_type: str  # "User" or "Organization"
+
+
+async def get_installation_metadata(
+    installation_id: int,
+    *,
+    app_id: str | None = None,
+    private_key_pem: str | None = None,
+    client: httpx.AsyncClient | None = None,
+) -> InstallationOwner | None:
+    """Fetch the owner of an installation using an App JWT.
+
+    Returns ``None`` if GitHub doesn't know the installation (404) or the
+    response is malformed. Raises :class:`AppConfigError` if the App
+    credentials aren't available — the caller decides whether to treat that
+    as "ownership unknown" or propagate.
+    """
+    if app_id and private_key_pem:
+        jwt_token = generate_jwt_from_config(app_id, private_key_pem)
+    else:
+        jwt_token = generate_jwt()
+    url = f"{GITHUB_API_URL}/app/installations/{installation_id}"
+    headers = {
+        "Authorization": f"Bearer {jwt_token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    close_after = client is None
+    c = client or httpx.AsyncClient()
+    try:
+        response = await c.get(url, headers=headers, timeout=10.0)
+        if response.status_code == 404:
+            return None
+        response.raise_for_status()
+        body = response.json()
+    finally:
+        if close_after:
+            await c.aclose()
+    account = body.get("account") or {}
+    login = account.get("login")
+    account_id = account.get("id")
+    target_type = body.get("target_type") or ""
+    if not login or not isinstance(account_id, int):
+        return None
+    return InstallationOwner(
+        account_login=str(login),
+        account_id=int(account_id),
+        target_type=str(target_type),
+    )

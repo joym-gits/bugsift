@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bugsift.api.deps import get_current_user, get_session
 from bugsift.db.models import TicketDestination, User
 from bugsift.security import crypto
+from bugsift.security.safe_url import UnsafeUrlError, assert_safe_public_url
 from bugsift.tickets.jira import JiraAuthError, JiraClient
 
 logger = logging.getLogger(__name__)
@@ -96,11 +97,13 @@ async def create_destination(
                 status_code=400, detail="jira provider requires a 'jira' config"
             )
         site_url = body.jira.site_url.strip().rstrip("/")
-        if not site_url.startswith(("http://", "https://")):
-            raise HTTPException(
-                status_code=400,
-                detail="site_url must start with http:// or https://",
-            )
+        # SSRF guard: must be https, must be a public host. Prevents an
+        # authenticated user from turning the backend into a probe for
+        # 127.0.0.1, 169.254.169.254, postgres:5432, etc.
+        try:
+            assert_safe_public_url(site_url, require_https=True)
+        except UnsafeUrlError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
         # Probe credentials before persisting; fail fast on bad tokens.
         client = JiraClient(
             site_url=site_url,
@@ -111,10 +114,18 @@ async def create_destination(
             await client.validate()
         except JiraAuthError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
-        except Exception as e:
+        except Exception:
+            # Don't echo the raw exception / response body — it can leak
+            # internal hostnames or service fingerprints. Full detail is
+            # available in server logs.
+            logger.exception("jira validate() failed for user_id=%s", user.id)
             raise HTTPException(
-                status_code=400, detail=f"could not reach Jira: {e}"
-            ) from e
+                status_code=400,
+                detail=(
+                    "Could not reach Jira. Check the site URL and try again; "
+                    "server logs have the full error."
+                ),
+            )
         config = {
             "site_url": site_url,
             "user_email": body.jira.user_email.strip(),

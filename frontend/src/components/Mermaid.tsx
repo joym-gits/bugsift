@@ -10,9 +10,12 @@ import { useEffect, useRef, useState } from "react";
  * from the source hash so two cards with the same src don't fight over
  * the same DOM node.
  *
- * If Mermaid can't parse the source (LLMs produce invalid syntax from
- * time to time) we fall back to rendering the raw source in a `<pre>`
- * block instead of throwing.
+ * Security: the mermaid `source` is ultimately LLM-generated from
+ * user-authored issue/feedback bodies, so we treat the rendered SVG as
+ * untrusted. Mermaid's own `securityLevel: "strict"` is the first pass;
+ * every SVG we emit then goes through DOMPurify with an SVG profile
+ * before being injected. That closes the historical class of "mermaid
+ * 10.x label bypass → XSS" bugs.
  */
 export function Mermaid({ source }: { source: string }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -24,16 +27,24 @@ export function Mermaid({ source }: { source: string }) {
     if (!source.trim()) return;
     (async () => {
       try {
-        const mermaid = (await import("mermaid")).default;
+        const [{ default: mermaid }, { default: DOMPurify }] = await Promise.all([
+          import("mermaid"),
+          import("dompurify"),
+        ]);
         mermaid.initialize({
           startOnLoad: false,
           theme: "neutral",
           securityLevel: "strict",
         });
         const id = `m${hash(source)}`;
-        const { svg } = await mermaid.render(id, source);
+        const { svg: raw } = await mermaid.render(id, source);
+        const clean = DOMPurify.sanitize(raw, {
+          USE_PROFILES: { svg: true, svgFilters: true },
+          FORBID_TAGS: ["script", "foreignObject"],
+          FORBID_ATTR: ["onload", "onerror", "onclick", "onmouseover"],
+        });
         if (!cancelled) {
-          setSvg(svg);
+          setSvg(clean);
           setError(null);
         }
       } catch (e) {

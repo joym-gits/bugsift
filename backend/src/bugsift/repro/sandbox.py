@@ -12,10 +12,12 @@ enforce §5.5 of the project brief:
 - Image is pulled on first use; containers are ``--rm`` so they're torn
   down after each run.
 
-Known gap (v1): ``network_mode="bridge"`` is still allowed so scripts that
-need ``pip install`` succeed on first run. §5.5 calls for ``--network none``
-plus a whitelisted egress proxy (PyPI, npm only). Building that proxy is
-tracked as follow-up work; the rest of the hardening ships today.
+Network: ``network_mode="none"``. LLM-authored scripts have no network
+access of any kind — no egress, no pivot to neighbour containers. This
+closes the data-exfiltration and lateral-movement paths a prompt-injected
+script would otherwise have. If a future reproduction genuinely needs
+third-party packages, add a whitelisted egress proxy (PyPI + npm only);
+pre-bake common libs into the base image before relaxing this.
 """
 
 from __future__ import annotations
@@ -124,7 +126,7 @@ def _run_script_sync(language: Language, script: str, timeout_sec: int) -> Sandb
             memswap_limit=MEMORY_LIMIT,  # prevent swap usage bypassing mem cap
             cpu_period=100_000,
             cpu_quota=100_000,  # == 1 CPU
-            network_mode="bridge",  # TODO egress proxy; see module docstring
+            network_mode="none",  # no egress, no neighbour-container access
             environment={"PYTHONDONTWRITEBYTECODE": "1", "NODE_NO_WARNINGS": "1"},
         )
         container.start()

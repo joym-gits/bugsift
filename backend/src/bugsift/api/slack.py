@@ -225,17 +225,19 @@ def _serialize(row: SlackDestination) -> DestinationOut:
 
 
 def _hint_from_url(encrypted: bytes) -> str:
-    """Show the URL's trailing chunk so the user can identify which
-    webhook a row belongs to without decrypting the whole thing."""
+    """Identifier-only hint. The Slack webhook URL is itself the auth
+    token, so we deliberately reveal no substring of the secret part.
+    Instead we derive a stable short fingerprint from the full URL —
+    two rows with different secrets are distinguishable in the UI,
+    but neither fingerprint helps an attacker reconstruct the secret.
+    """
     try:
         url = crypto.decrypt(encrypted)
     except crypto.DecryptionFailed:
         return "••••"
-    # hooks.slack.com URLs end in a distinctive token segment
-    tail = url.rsplit("/", 1)[-1]
-    if len(tail) <= 6:
-        return tail
-    return f"…/{tail[-6:]}"
+    import hashlib
+    digest = hashlib.sha256(url.encode("utf-8")).hexdigest()[:8]
+    return f"hook:{digest}"
 
 
 def _clean_events(raw: dict[str, bool] | None) -> dict[str, bool]:

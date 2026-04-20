@@ -25,6 +25,7 @@ from bugsift.api.webhooks import router as webhooks_router
 from bugsift.api.widget import router as widget_router
 from bugsift.config import get_settings
 from bugsift.github import smee
+from bugsift.security import crypto
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,10 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 def create_app() -> FastAPI:
     settings = get_settings()
 
+    # Boot-time secret checks. Raising here beats letting the first
+    # request decide whether the deployment is viable.
+    crypto.validate_at_startup()
+
     app = FastAPI(
         title="bugsift",
         version=__version__,
@@ -65,12 +70,24 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # Session is a signed cookie holding `user_id` and OAuth state. Secret must
-    # not be empty in production; in dev we fall back to a local default so the
-    # stack can boot before the operator fills .env.
+    # Session is a signed cookie holding `user_id` and OAuth state.
+    # Production refuses to boot without a real secret — a forgettable
+    # default has bitten every framework that allowed it.
+    session_secret = settings.session_secret
+    if not session_secret:
+        if settings.env == "production":
+            raise RuntimeError(
+                "BUGSIFT_SESSION_SECRET must be set in production. Generate one "
+                "with `python -c 'import secrets; print(secrets.token_urlsafe(64))'`."
+            )
+        session_secret = "dev-only-insecure-replace-me"
+        logger.warning(
+            "BUGSIFT_SESSION_SECRET is empty; using a known-insecure dev default. "
+            "Set it before running outside your laptop."
+        )
     app.add_middleware(
         SessionMiddleware,
-        secret_key=settings.session_secret or "dev-only-insecure-replace-me",
+        secret_key=session_secret,
         same_site="lax",
         https_only=settings.env == "production",
         session_cookie="bugsift_session",
@@ -85,9 +102,12 @@ def create_app() -> FastAPI:
     )
 
     # The feedback widget runs on arbitrary third-party origins and never
-    # needs cookies, so it gets its own wide-open CORS layer scoped to the
-    # ingest path and the widget script. The dashboard CORS above is still
-    # the only one that allows credentials.
+    # needs cookies (the widget fetches with ``credentials: "omit"``).
+    # Pin ACAO to ``*`` rather than reflecting the request ``Origin`` —
+    # reflection is a well-known footgun the day someone turns credentials
+    # on, and ``*`` is provably safe for credential-less requests. The
+    # dashboard CORS middleware above is the only place that allows
+    # credentials, and it's pinned to settings.public_url.
     @app.middleware("http")
     async def _widget_cors(request, call_next):
         path = request.url.path
@@ -98,7 +118,7 @@ def create_app() -> FastAPI:
             return _Response(
                 status_code=204,
                 headers={
-                    "Access-Control-Allow-Origin": request.headers.get("origin", "*"),
+                    "Access-Control-Allow-Origin": "*",
                     "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
                     "Access-Control-Allow-Headers": "Content-Type, X-Bugsift-App-Key",
                     "Access-Control-Max-Age": "600",
@@ -106,8 +126,7 @@ def create_app() -> FastAPI:
             )
         response = await call_next(request)
         if is_widget_path:
-            response.headers["Access-Control-Allow-Origin"] = request.headers.get("origin", "*")
-            response.headers["Vary"] = "Origin"
+            response.headers["Access-Control-Allow-Origin"] = "*"
         return response
 
     @app.get("/health")

@@ -101,7 +101,7 @@ function SignInPrompt({ nextStep }: { nextStep: Step }) {
       ? "Installing the App on a repo links it to your bugsift account."
       : "Your LLM key is stored against your user, encrypted at rest.";
   return (
-    <section className="rounded-lg border bg-card p-8 text-center shadow-sm">
+    <section className="rounded-lg border bg-card p-8 text-center shadow-elev-1">
       <h2 className="text-xl font-semibold">Sign in to continue</h2>
       <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">{label}</p>
       <a
@@ -184,11 +184,22 @@ function AppStep({
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [waiting, setWaiting] = useState(false);
+  // Bootstrap token — required in production by the backend. We only
+  // reveal the input after a 401/503 so the happy path on localhost
+  // stays single-click.
+  const [needsBootstrap, setNeedsBootstrap] = useState(false);
+  const [bootstrapToken, setBootstrapToken] = useState("");
 
   const onStart = async () => {
     setError(null);
     setSubmitting(true);
     try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (bootstrapToken.trim()) {
+        headers["X-Bugsift-Bootstrap-Token"] = bootstrapToken.trim();
+      }
       // Backend auto-provisions a smee channel + starts the in-process
       // forwarder, then returns the manifest + target URL as JSON. We
       // build a native DOM form on THIS page (so the browser sends
@@ -198,7 +209,7 @@ function AppStep({
       const response = await fetch(`${API_BASE_URL}/github/app/manifest/start`, {
         method: "POST",
         credentials: "include",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({}),
       });
       if (!response.ok) {
@@ -208,6 +219,12 @@ function AppStep({
           detail = body?.detail ?? detail;
         } catch {
           /* keep default */
+        }
+        // 401 = token missing/wrong, 503 = token not configured on backend.
+        // Reveal the input so the operator can paste the value printed in
+        // the backend logs.
+        if (response.status === 401 || response.status === 503) {
+          setNeedsBootstrap(true);
         }
         setError(detail);
         setSubmitting(false);
@@ -246,7 +263,7 @@ function AppStep({
   };
 
   return (
-    <section className="rounded-lg border bg-card p-6 shadow-sm">
+    <section className="rounded-lg border bg-card p-6 shadow-elev-1">
       <h2 className="text-xl font-semibold">Register your GitHub App</h2>
       <p className="mt-1 text-sm text-muted-foreground">
         One click. bugsift hands you to GitHub with a pre-filled manifest in a
@@ -320,6 +337,36 @@ function AppStep({
         </p>
       )}
 
+      {needsBootstrap && !configured && (
+        <div className="mt-4 rounded-md border border-warning/40 bg-warning/5 p-4">
+          <div className="text-sm font-medium">Bootstrap token required</div>
+          <p className="mt-1 text-sm text-muted-foreground">
+            This deployment is locked until the operator proves log access.
+            Paste the value of <code className="font-mono text-xs">BUGSIFT_BOOTSTRAP_TOKEN</code>{" "}
+            from your <code className="font-mono text-xs">.env</code> (or
+            from the line printed on backend startup).
+          </p>
+          <div className="mt-3 flex items-center gap-2">
+            <input
+              type="password"
+              autoComplete="off"
+              autoFocus
+              placeholder="paste bootstrap token"
+              value={bootstrapToken}
+              onChange={(e) => setBootstrapToken(e.target.value)}
+              className="h-9 flex-1 rounded-md border border-input bg-background px-3 font-mono text-sm"
+            />
+          </div>
+          <p className="mt-2 text-[11px] text-muted-foreground">
+            On first boot the backend logs{" "}
+            <code className="font-mono">BUGSIFT_BOOTSTRAP_TOKEN</code>. Grab
+            it with <code className="font-mono">docker compose logs backend | grep BOOTSTRAP</code>,
+            or read it from the <code className="font-mono">.env</code> file
+            that started the stack.
+          </p>
+        </div>
+      )}
+
       {waiting && !configured && (
         <div className="mt-5 rounded-md border border-primary/30 bg-primary/5 p-4 text-sm">
           <div className="font-medium">Waiting on GitHub…</div>
@@ -371,7 +418,7 @@ function InstallStep({
   hasRepo: boolean;
 }) {
   return (
-    <section className="rounded-lg border bg-card p-6 shadow-sm">
+    <section className="rounded-lg border bg-card p-6 shadow-elev-1">
       <h2 className="text-xl font-semibold">Install the App on a repo</h2>
       <p className="mt-1 text-sm text-muted-foreground">
         Pick a scratch repo for your first run — ideally one you own where
@@ -449,7 +496,7 @@ function KeyStep() {
   const done = hasAnyKey;
 
   return (
-    <section className="rounded-lg border bg-card p-6 shadow-sm">
+    <section className="rounded-lg border bg-card p-6 shadow-elev-1">
       <h2 className="text-xl font-semibold">Add an LLM API key</h2>
       <p className="mt-1 text-sm text-muted-foreground">
         Anthropic is the default. Keys are Fernet-encrypted at rest. We&apos;ll
