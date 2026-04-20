@@ -3,13 +3,15 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from bugsift.api.deps import get_current_user, get_session
+from bugsift.audit.log import Action, record as audit_record
+from bugsift.auth.roles import Role, require_role
 from bugsift.db.models import (
     FeedbackApp,
     FeedbackReport,
@@ -91,6 +93,10 @@ class CardResponse(BaseModel):
     reproduction_verdict: str | None = None
     reproduction_log: str | None = None
     budget_limited: bool = False
+    # Kinds + counts of PII the redactor scrubbed before the prompt
+    # went to the LLM. ``null`` = card predates the redactor; ``{}`` =
+    # clean; populated dict = show a pill on the tile.
+    pii_redacted: dict[str, int] | None = None
     final_comment: str | None = None
     created_at: datetime
 
@@ -219,13 +225,23 @@ async def _get_owned_card(session: AsyncSession, user: User, card_id: int) -> tu
 async def edit_draft(
     card_id: int,
     body: EditBody,
+    request: Request,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_role(Role.triager)),
 ) -> CardResponse:
     card, repo, _ = await _get_owned_card(session, user, card_id)
     if card.status != "pending":
         raise HTTPException(status_code=409, detail=f"card is already {card.status}")
     card.draft_comment = body.draft_comment
+    await audit_record(
+        session,
+        actor=user,
+        action=Action.CARD_EDITED,
+        target_type="card",
+        target_id=card.id,
+        summary=f"edited draft on {repo.full_name}#{card.issue_number or ''}".rstrip("#"),
+        request=request,
+    )
     await session.commit()
     await session.refresh(card)
     return _card_response(card, repo.full_name, repo.default_branch)
@@ -235,7 +251,7 @@ async def edit_draft(
 async def rerun_card(
     card_id: int,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_role(Role.triager)),
 ) -> dict[str, str]:
     """Re-enqueue triage for a still-pending card using its stored webhook
     payload. Useful after the user adds/fixes an LLM key — cards stuck at
@@ -262,8 +278,9 @@ async def rerun_card(
 @router.post("/{card_id}/skip", response_model=CardResponse)
 async def skip_card(
     card_id: int,
+    request: Request,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_role(Role.triager)),
 ) -> CardResponse:
     card, repo, _ = await _get_owned_card(session, user, card_id)
     if card.status != "pending":
@@ -271,6 +288,16 @@ async def skip_card(
     card.status = "skipped"
     card.decided_at = datetime.now(UTC)
     card.decided_by_user_id = user.id
+    await audit_record(
+        session,
+        actor=user,
+        action=Action.CARD_SKIPPED,
+        target_type="card",
+        target_id=card.id,
+        summary=f"skipped {repo.full_name}#{card.issue_number or ''}".rstrip("#"),
+        metadata={"classification": card.classification, "severity": card.severity},
+        request=request,
+    )
     await session.commit()
     await session.refresh(card)
     return _card_response(card, repo.full_name, repo.default_branch)
@@ -279,9 +306,10 @@ async def skip_card(
 @router.post("/{card_id}/approve", response_model=CardResponse)
 async def approve_card(
     card_id: int,
+    request: Request,
     body: ApproveBody | None = None,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_role(Role.triager)),
     github_client_factory = Depends(get_github_client_factory),
 ) -> CardResponse:
     card, repo, install = await _get_owned_card(session, user, card_id)
@@ -328,6 +356,22 @@ async def approve_card(
     card.status = "posted"
     card.decided_at = datetime.now(UTC)
     card.decided_by_user_id = user.id
+    await audit_record(
+        session,
+        actor=user,
+        action=Action.CARD_APPROVED,
+        target_type="card",
+        target_id=card.id,
+        summary=f"approved {repo.full_name}#{card.issue_number or ''}".rstrip("#"),
+        metadata={
+            "classification": card.classification,
+            "severity": card.severity,
+            "assignees": list(assignees_override or []),
+            "ticket_provider": card.ticket_provider,
+            "ticket_key": card.ticket_key,
+        },
+        request=request,
+    )
     await session.commit()
     await session.refresh(card)
     try:
@@ -690,6 +734,11 @@ def _card_response(
         reproduction_verdict=card.reproduction_verdict,
         reproduction_log=card.reproduction_log,
         budget_limited=bool(card.budget_limited),
+        pii_redacted=(
+            dict(card.pii_redacted_json)
+            if isinstance(card.pii_redacted_json, dict)
+            else None
+        ),
         final_comment=card.final_comment,
         created_at=card.created_at,
     )

@@ -35,6 +35,12 @@ class User(Base):
     github_id: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False, index=True)
     github_login: Mapped[str] = mapped_column(String(80), nullable=False)
     email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    # Role is persisted as a plain string (not a DB enum) so adding new
+    # roles doesn't require an ALTER TYPE migration. Values are
+    # constrained in Python via :class:`bugsift.auth.roles.Role`.
+    role: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="triager"
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
@@ -185,6 +191,12 @@ class TriageCard(Base):
     proposed_labels_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     proposed_action: Mapped[str | None] = mapped_column(String(48), nullable=True)
     budget_limited: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Counts of PII the redactor stripped from the issue title + body
+    # before any LLM call. Keys are redactor ``kind`` values (``email``,
+    # ``phone``, ``aws_access_key_id``, etc.); values are occurrence
+    # counts. ``None`` = card predates the redactor; ``{}`` = scanned
+    # and nothing matched.
+    pii_redacted_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     raw_payload_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -590,4 +602,37 @@ class GithubAppCredentials(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class AuditEvent(Base):
+    """Append-only record of security / ops-relevant actions.
+
+    No UPDATE or DELETE path exists in the app; rows are written once
+    and read many. ``actor_login`` is denormalised so a deleted user
+    still shows up as "who"; ``target_id`` is a string for the same
+    reason (the target row may be gone by the time someone reads the
+    log). ``metadata_json`` carries action-specific detail
+    (before/after values, assignees, etc.).
+    """
+
+    __tablename__ = "audit_events"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    actor_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    actor_login: Mapped[str] = mapped_column(String(80), nullable=False)
+    action: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    target_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    target_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    summary: Mapped[str] = mapped_column(String(256), nullable=False)
+    metadata_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    request_ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    request_ua: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+        index=True,
     )

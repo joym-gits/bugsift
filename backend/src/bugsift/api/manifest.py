@@ -24,7 +24,9 @@ from pydantic import BaseModel, HttpUrl
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from bugsift.api.deps import get_current_user, get_session
+from bugsift.api.deps import get_current_user, get_optional_user, get_session
+from bugsift.audit.log import Action, record as audit_record
+from bugsift.auth.roles import Role, require_role
 from bugsift.config import get_settings
 from bugsift.db.models import GithubAppCredentials, User
 from bugsift.github import config as app_config
@@ -221,19 +223,42 @@ async def callback(
         payload.get("id"),
         payload.get("slug"),
     )
+    # Anonymous during bootstrap, so no acting user — recorded as "system".
+    await audit_record(
+        session,
+        actor=await get_optional_user(request, session),
+        action=Action.APP_REGISTERED,
+        target_type="github_app",
+        target_id=payload.get("id"),
+        summary=f"registered App {payload.get('slug')}",
+        metadata={"slug": payload.get("slug"), "name": payload.get("name")},
+        request=request,
+    )
+    await session.commit()
     return RedirectResponse("/onboarding?step=install", status_code=303)
 
 
 @router.delete("", status_code=status.HTTP_204_NO_CONTENT)
 async def clear_app(
+    request: Request,
     session: AsyncSession = Depends(get_session),
-    _: User = Depends(get_current_user),
+    admin: User = Depends(require_role(Role.admin)),
 ) -> None:
     """Wipe the stored App. Useful for re-registering against a new tunnel."""
     row = (
         await session.execute(select(GithubAppCredentials).where(GithubAppCredentials.id == 1))
     ).scalar_one_or_none()
     if row is not None:
+        await audit_record(
+            session,
+            actor=admin,
+            action=Action.APP_DELETED,
+            target_type="github_app",
+            target_id=row.github_app_id,
+            summary=f"removed App {row.slug}",
+            metadata={"slug": row.slug, "name": row.name},
+            request=request,
+        )
         await session.delete(row)
         await session.commit()
     app_config.clear_cache()

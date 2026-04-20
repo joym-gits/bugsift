@@ -3,12 +3,14 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bugsift.api.deps import get_current_user, get_session
+from bugsift.audit.log import Action, record as audit_record
+from bugsift.auth.roles import Role, require_role
 from bugsift.db.models import User, UserApiKey
 from bugsift.security import crypto
 
@@ -48,8 +50,9 @@ async def list_keys(
 @router.post("", response_model=KeyResponse, status_code=status.HTTP_201_CREATED)
 async def create_key(
     body: KeyCreate,
+    request: Request,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_role(Role.triager)),
 ) -> KeyResponse:
     existing = (
         await session.execute(
@@ -77,6 +80,17 @@ async def create_key(
         masked_hint=crypto.mask_key(body.key),
     )
     session.add(row)
+    await session.flush()
+    await audit_record(
+        session,
+        actor=user,
+        action=Action.KEY_CREATED,
+        target_type="key",
+        target_id=row.id,
+        summary=f"added {body.provider} API key",
+        metadata={"provider": body.provider, "masked_hint": row.masked_hint},
+        request=request,
+    )
     await session.commit()
     await session.refresh(row)
     return KeyResponse(id=row.id, provider=row.provider, masked_hint=row.masked_hint, created_at=row.created_at)  # type: ignore[arg-type]
@@ -85,11 +99,22 @@ async def create_key(
 @router.delete("/{key_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_key(
     key_id: int,
+    request: Request,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_role(Role.triager)),
 ) -> None:
     row = await session.get(UserApiKey, key_id)
     if not row or row.user_id != user.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="key not found")
+    await audit_record(
+        session,
+        actor=user,
+        action=Action.KEY_DELETED,
+        target_type="key",
+        target_id=row.id,
+        summary=f"deleted {row.provider} API key",
+        metadata={"provider": row.provider},
+        request=request,
+    )
     await session.delete(row)
     await session.commit()

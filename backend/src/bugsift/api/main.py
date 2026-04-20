@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from bugsift import __version__
+from bugsift.api.audit import router as audit_router
 from bugsift.api.auth import router as auth_router
 from bugsift.api.cards import router as cards_router
 from bugsift.api.feedback import router as feedback_router
@@ -17,10 +18,12 @@ from bugsift.api.github_settings import router as github_settings_router
 from bugsift.api.keys import router as keys_router
 from bugsift.api.llm import router as llm_router
 from bugsift.api.manifest import router as manifest_router
+from bugsift.api.metrics import router as metrics_router
 from bugsift.api.repos import router as repos_router
 from bugsift.api.slack import router as slack_router
 from bugsift.api.tickets import router as tickets_router
 from bugsift.api.usage import router as usage_router
+from bugsift.api.users import router as users_router
 from bugsift.api.webhooks import router as webhooks_router
 from bugsift.api.widget import router as widget_router
 from bugsift.config import get_settings
@@ -147,6 +150,9 @@ def create_app() -> FastAPI:
     app.include_router(widget_router)
     app.include_router(slack_router)
     app.include_router(tickets_router)
+    app.include_router(users_router)
+    app.include_router(audit_router)
+    app.include_router(metrics_router)
 
     return app
 

@@ -106,6 +106,11 @@ class TriageState:
     status: Literal["running", "complete"] = "running"
     flag_reason: str | None = None
     budget_limited: bool = False
+    # What the PII redactor stripped from the title/body before the
+    # first LLM call. ``{"email": 1, "phone": 2}`` means two phones and
+    # one email were redacted. Surfaced on the triage card so operators
+    # know when a report contained sensitive data.
+    pii_redacted: dict[str, int] = field(default_factory=dict)
 
     # --- accumulated usage ---
     llm_calls: list[LLMCallRecord] = field(default_factory=list)

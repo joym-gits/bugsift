@@ -20,6 +20,7 @@ from typing import Any
 
 from bugsift.agent.state import TriageState
 from bugsift.db.models import FeedbackReport
+from bugsift.pii.redact import redact
 
 _WHITESPACE = re.compile(r"\s+")
 _MAX_TITLE_LEN = 90
@@ -35,6 +36,19 @@ def from_feedback_report(
 ) -> TriageState:
     title = _synthesize_title(report.body_text)
     body = _assemble_body(report)
+    # Scrub PII before the body reaches the LLM. Feedback reports are
+    # especially prone to carrying emails, phone numbers, and stack
+    # traces with bearer tokens because end-users paste whatever's on
+    # their screen. The original text stays in ``feedback_reports.body_text``
+    # for the operator to read in the dashboard; only this redacted
+    # copy flows to the orchestrator.
+    title_r = redact(title)
+    body_r = redact(body)
+    merged_counts: dict[str, int] = {}
+    for k, v in title_r.counts.items():
+        merged_counts[k] = merged_counts.get(k, 0) + v
+    for k, v in body_r.counts.items():
+        merged_counts[k] = merged_counts.get(k, 0) + v
     return TriageState(
         repo_id=repo_id,
         repo_full_name=repo_full_name,
@@ -42,8 +56,9 @@ def from_feedback_report(
         # 0 = "no GitHub issue yet"; the card writer maps this to NULL
         # and persists the feedback_report_ids instead.
         issue_number=0,
-        issue_title=title,
-        issue_body=body,
+        issue_title=title_r.text,
+        issue_body=body_r.text,
+        pii_redacted=merged_counts,
         issue_author="",  # end-user is anonymised by reporter_hash
         existing_labels=[],
         raw_payload={"feedback_report_id": report.id},

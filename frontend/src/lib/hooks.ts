@@ -4,12 +4,116 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiFetch } from "@/lib/api";
 
+export type Role = "admin" | "triager" | "viewer";
+
 export type Me = {
   id: number;
   github_id: number;
   github_login: string;
   email: string | null;
+  role: Role;
 };
+
+export type AdminUser = {
+  id: number;
+  github_login: string;
+  email: string | null;
+  role: Role;
+  created_at: string;
+};
+
+export type AuditEvent = {
+  id: number;
+  actor_user_id: number | null;
+  actor_login: string;
+  action: string;
+  target_type: string;
+  target_id: string | null;
+  summary: string;
+  metadata: Record<string, unknown> | null;
+  request_ip: string | null;
+  request_ua: string | null;
+  created_at: string;
+};
+
+export type AuditFilters = {
+  actor?: string;
+  action?: string;
+  target_type?: string;
+  limit?: number;
+};
+
+export function useAuditEvents(enabled: boolean, filters: AuditFilters = {}) {
+  const params = new URLSearchParams();
+  if (filters.actor) params.set("actor", filters.actor);
+  if (filters.action) params.set("action", filters.action);
+  if (filters.target_type) params.set("target_type", filters.target_type);
+  params.set("limit", String(filters.limit ?? 200));
+  const qs = params.toString();
+  return useQuery<AuditEvent[]>({
+    queryKey: ["audit", filters],
+    queryFn: () => apiFetch<AuditEvent[]>(`/audit?${qs}`),
+    enabled,
+  });
+}
+
+export function useAuditActions(enabled: boolean) {
+  return useQuery<string[]>({
+    queryKey: ["audit", "actions"],
+    queryFn: () => apiFetch<string[]>("/audit/actions"),
+    enabled,
+  });
+}
+
+export type TimeSeriesPoint = { date: string; value: number };
+export type CountByKey = { key: string; value: number };
+export type MetricsResponse = {
+  window_days: number;
+  cards_created: number;
+  cards_by_day: TimeSeriesPoint[];
+  outcome_mix: { pending: number; posted: number; skipped: number };
+  approval_rate: number;
+  cost_by_day_usd: TimeSeriesPoint[];
+  cost_by_provider_usd: CountByKey[];
+  cost_by_model_usd: CountByKey[];
+  cost_by_step_usd: CountByKey[];
+  total_cost_usd: number;
+  classification_mix: CountByKey[];
+  severity_mix: CountByKey[];
+  pii_scrub_rate: number;
+};
+
+export function useMetrics(enabled: boolean, days: number = 30) {
+  return useQuery<MetricsResponse>({
+    queryKey: ["metrics", days],
+    queryFn: () => apiFetch<MetricsResponse>(`/metrics?days=${days}`),
+    enabled,
+  });
+}
+
+export function useAdminUsers(enabled: boolean) {
+  return useQuery<AdminUser[]>({
+    queryKey: ["admin", "users"],
+    queryFn: () => apiFetch<AdminUser[]>("/users"),
+    enabled,
+  });
+}
+
+export function useUpdateUserRole() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ userId, role }: { userId: number; role: Role }) => {
+      return apiFetch<AdminUser>(`/users/${userId}/role`, {
+        method: "PATCH",
+        body: JSON.stringify({ role }),
+      });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin", "users"] });
+      qc.invalidateQueries({ queryKey: ["me"] });
+    },
+  });
+}
 
 export type ApiKey = {
   id: number;
@@ -115,6 +219,7 @@ export type Card = {
     | null;
   reproduction_log?: string | null;
   budget_limited?: boolean;
+  pii_redacted?: Record<string, number> | null;
   final_comment?: string | null;
   created_at: string;
 };

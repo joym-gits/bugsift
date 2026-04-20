@@ -3,13 +3,16 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  BarChart3,
   Github,
   History,
   Inbox,
   LogOut,
   MessageSquareWarning,
   Rocket,
+  ScrollText,
   Settings,
+  Users as UsersIcon,
   type LucideIcon,
 } from "lucide-react";
 
@@ -23,11 +26,13 @@ type NavItem = {
   href: string;
   label: string;
   icon: LucideIcon;
+  adminOnly?: boolean;
 };
 
 type NavGroup = {
   label: string;
   items: NavItem[];
+  adminOnly?: boolean;
 };
 
 const NAV: NavGroup[] = [
@@ -45,6 +50,15 @@ const NAV: NavGroup[] = [
       { href: "/onboarding", label: "Onboarding", icon: Rocket },
       { href: "/github", label: "GitHub", icon: Github },
       { href: "/settings", label: "Settings", icon: Settings },
+    ],
+  },
+  {
+    label: "Admin",
+    adminOnly: true,
+    items: [
+      { href: "/admin/metrics", label: "Metrics", icon: BarChart3 },
+      { href: "/admin/users", label: "Users", icon: UsersIcon },
+      { href: "/admin/audit", label: "Audit log", icon: ScrollText },
     ],
   },
 ];
@@ -76,8 +90,20 @@ export function AppShell({
             {me.github_login.slice(0, 1).toUpperCase()}
           </div>
           <div className="hidden min-w-0 pl-1 sm:block">
-            <div className="truncate text-sm font-medium leading-tight">
+            <div className="flex items-center gap-1.5 truncate text-sm font-medium leading-tight">
               {me.github_login}
+              <span
+                className={cn(
+                  "rounded-full px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide",
+                  me.role === "admin"
+                    ? "bg-primary/15 text-primary"
+                    : me.role === "triager"
+                      ? "bg-info/15 text-info"
+                      : "bg-muted text-muted-foreground",
+                )}
+              >
+                {me.role}
+              </span>
             </div>
             <div className="truncate text-[11px] text-muted-foreground">
               {me.email ?? "github user"}
@@ -98,7 +124,7 @@ export function AppShell({
       <div className="flex flex-1">
         <aside className="hidden w-60 shrink-0 flex-col border-r bg-card/40 md:flex">
           <nav className="flex-1 overflow-y-auto px-3 py-6">
-            {NAV.map((group, idx) => (
+            {NAV.filter((g) => !g.adminOnly || me.role === "admin").map((group, idx) => (
               <div key={group.label} className={cn(idx > 0 && "mt-6")}>
                 <div className="mb-1.5 px-3 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
                   {group.label}

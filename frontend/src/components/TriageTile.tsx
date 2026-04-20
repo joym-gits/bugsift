@@ -3,6 +3,7 @@
 import {
   GitPullRequestArrow,
   MessageSquareWarning,
+  ShieldCheck,
   UserRound,
 } from "lucide-react";
 
@@ -32,6 +33,9 @@ export function TriageTile({
   const assigneeCount = card.suggested_assignees?.length ?? 0;
   const suspectCount = card.regression_suspects?.length ?? 0;
   const isStuck = card.status === "pending" && !card.classification;
+  const piiTotal = card.pii_redacted
+    ? Object.values(card.pii_redacted).reduce((a, b) => a + b, 0)
+    : 0;
 
   return (
     <button
@@ -80,6 +84,19 @@ export function TriageTile({
         {card.classification && (
           <span className="rounded-full border px-2 py-0.5">
             {card.classification}
+          </span>
+        )}
+        {piiTotal > 0 && (
+          <span
+            className="inline-flex items-center gap-1 rounded-full border border-success/40 bg-success/10 px-2 py-0.5 text-success"
+            title={`${piiTotal} PII token${piiTotal === 1 ? "" : "s"} scrubbed before the LLM saw this: ${Object.entries(
+              card.pii_redacted ?? {},
+            )
+              .map(([k, v]) => `${k}×${v}`)
+              .join(", ")}`}
+          >
+            <ShieldCheck className="h-3 w-3" />
+            PII scrubbed
           </span>
         )}
         {typeof card.confidence === "number" && (

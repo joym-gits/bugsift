@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bugsift.api.deps import get_current_user, get_session
 from bugsift.api.webhooks import _fetch_installation_repos, _upsert_repos
+from bugsift.auth.roles import Role, require_role
 from bugsift.db.models import Installation, Repo, User
 from bugsift.github import app as gh_app
 from bugsift.github import config as app_config
@@ -62,7 +63,7 @@ class HydrateResponse(BaseModel):
 @router.post("/hydrate", response_model=HydrateResponse)
 async def hydrate_repos(
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_role(Role.triager)),
 ) -> HydrateResponse:
     """Re-query GitHub for every repo attached to this user's installations
     and add any that aren't already in the DB. Useful when an install
@@ -213,7 +214,7 @@ class CodeownersRefreshResponse(BaseModel):
 async def refresh_codeowners_endpoint(
     repo_id: int,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_role(Role.triager)),
 ) -> CodeownersRefreshResponse:
     """Re-pull the repo's CODEOWNERS file into the cache on demand.
 
@@ -238,7 +239,7 @@ async def refresh_codeowners_endpoint(
 async def backfill_repo(
     repo_id: int,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_role(Role.triager)),
 ) -> BackfillResponse:
     """Manually re-run the existing-issue backfill for one repo.
 

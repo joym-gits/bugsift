@@ -6,10 +6,12 @@ import secrets
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bugsift.api.deps import get_current_user, get_optional_user, get_session
+from bugsift.audit.log import Action, record as audit_record
+from bugsift.auth.roles import Role
 from bugsift.config import get_settings
 from bugsift.db.models import Installation, User, UserApiKey
 from bugsift.github import config as app_config
@@ -26,6 +28,7 @@ class MeResponse(BaseModel):
     github_id: int
     github_login: str
     email: str | None
+    role: str
 
 
 @router.get("/github/start")
@@ -86,7 +89,19 @@ async def github_callback(
         await session.execute(select(User).where(User.github_id == gh_user.id))
     ).scalar_one_or_none()
     if user is None:
-        user = User(github_id=gh_user.id, github_login=gh_user.login, email=gh_user.email)
+        # First user on a fresh deployment is the operator — grant admin.
+        # Subsequent users default to triager and can be promoted by an
+        # existing admin.
+        existing_count = (
+            await session.execute(select(func.count()).select_from(User))
+        ).scalar_one()
+        role = Role.admin.value if existing_count == 0 else Role.triager.value
+        user = User(
+            github_id=gh_user.id,
+            github_login=gh_user.login,
+            email=gh_user.email,
+            role=role,
+        )
         session.add(user)
     else:
         user.github_login = gh_user.login
@@ -97,6 +112,16 @@ async def github_callback(
 
     request.session["user_id"] = user.id
     logger.info("login: user_id=%s github_login=%s", user.id, user.github_login)
+    await audit_record(
+        session,
+        actor=user,
+        action=Action.USER_LOGIN,
+        target_type="user",
+        target_id=user.id,
+        summary=f"{user.github_login} signed in",
+        request=request,
+    )
+    await session.commit()
     # First-time users (no installation or no LLM key) land on the wizard;
     # everyone else goes straight to the queue. The dashboard banner still
     # handles edge cases and gives returning users a manual path back to
@@ -127,7 +152,13 @@ async def _post_login_target(session: AsyncSession, user_id: int) -> str:
 async def me(user: User | None = Depends(get_optional_user)) -> MeResponse | None:
     if user is None:
         return None
-    return MeResponse(id=user.id, github_id=user.github_id, github_login=user.github_login, email=user.email)
+    return MeResponse(
+        id=user.id,
+        github_id=user.github_id,
+        github_login=user.github_login,
+        email=user.email,
+        role=user.role,
+    )
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)

@@ -24,6 +24,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bugsift.api.deps import get_current_user, get_session
+from bugsift.auth.roles import Role, require_role
 from bugsift.db.models import SlackDestination, User
 from bugsift.security import crypto
 from bugsift.slack import notifier
@@ -80,7 +81,7 @@ async def list_destinations(
 async def create_destination(
     body: CreateDestinationBody,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_role(Role.triager)),
 ) -> DestinationOut:
     url = body.webhook_url.strip()
     if not _WEBHOOK_URL_RE.match(url):
@@ -121,7 +122,7 @@ async def update_destination(
     dest_id: int,
     body: UpdateDestinationBody,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_role(Role.triager)),
 ) -> DestinationOut:
     row = await session.get(SlackDestination, dest_id)
     if row is None or row.user_id != user.id:
@@ -141,7 +142,7 @@ async def update_destination(
 async def delete_destination(
     dest_id: int,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_role(Role.triager)),
 ) -> None:
     row = await session.get(SlackDestination, dest_id)
     if row is None or row.user_id != user.id:

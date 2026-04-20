@@ -279,6 +279,7 @@ def _write_card(
         proposed_labels_json=state.proposed_labels or None,
         proposed_action=state.proposed_action,
         budget_limited=state.budget_limited,
+        pii_redacted_json=dict(state.pii_redacted) if state.pii_redacted else {},
         raw_payload_json=state.raw_payload,
     )
     session.add(card)

@@ -30,6 +30,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bugsift.api.deps import get_current_user, get_session
+from bugsift.auth.roles import Role, require_role
 from bugsift.db.models import (
     FeedbackApp,
     FeedbackDigest,
@@ -200,7 +201,7 @@ class FeedbackAppOut(BaseModel):
 async def create_feedback_app(
     body: CreateAppBody,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_role(Role.triager)),
 ) -> FeedbackAppOut:
     if body.default_repo_id is not None:
         owned = await _owns_repo(session, user.id, body.default_repo_id)
@@ -252,7 +253,7 @@ async def update_feedback_app(
     app_id: int,
     body: UpdateAppBody,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_role(Role.triager)),
 ) -> FeedbackAppOut:
     row = await session.get(FeedbackApp, app_id)
     if row is None or row.user_id != user.id:
@@ -845,7 +846,7 @@ def _serialize_analysis(analysis: RepoAnalysis) -> AnalysisResponse:
 async def delete_feedback_app(
     app_id: int,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_role(Role.triager)),
 ) -> None:
     row = await session.get(FeedbackApp, app_id)
     if row is None or row.user_id != user.id:

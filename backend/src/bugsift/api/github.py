@@ -22,12 +22,13 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bugsift.api.deps import get_current_user, get_session
+from bugsift.audit.log import Action, record as audit_record
 from bugsift.db.models import Installation, User
 from bugsift.github import app as gh_app
 from bugsift.github import config as app_config
@@ -39,6 +40,7 @@ router = APIRouter(prefix="/github", tags=["github"])
 @router.get("/install/callback")
 async def install_callback(
     installation_id: int,
+    request: Request,
     setup_action: str | None = None,
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
@@ -128,6 +130,16 @@ async def install_callback(
     else:
         installation.user_id = user.id
 
+    await audit_record(
+        session,
+        actor=user,
+        action=Action.INSTALLATION_LINKED,
+        target_type="installation",
+        target_id=installation_id,
+        summary=f"linked installation {installation_id}",
+        metadata={"setup_action": setup_action},
+        request=request,
+    )
     await session.commit()
     logger.info(
         "install callback user_id=%s installation_id=%s action=%s",
