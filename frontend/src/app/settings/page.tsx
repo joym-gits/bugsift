@@ -63,7 +63,7 @@ export default function SettingsPage() {
 
           <SpendCard loading={usage.isLoading} data={usage.data} />
 
-          <section className="mt-6 rounded-lg border bg-card p-6 shadow-sm">
+          <section className="mt-6 rounded-lg border bg-card p-6 shadow-elev-1">
             <div className="mb-1 flex items-center gap-2">
               <KeyRound className="h-4 w-4 text-muted-foreground" />
               <h2 className="text-base font-medium">Add an LLM API key</h2>
@@ -129,7 +129,7 @@ export default function SettingsPage() {
             )}
           </section>
 
-          <section className="mt-6 rounded-lg border bg-card p-6 shadow-sm">
+          <section className="mt-6 rounded-lg border bg-card p-6 shadow-elev-1">
             <h2 className="mb-3 text-base font-medium">Stored keys</h2>
             {keys.isLoading ? (
               <Skeleton className="h-16 w-full" />
@@ -213,7 +213,7 @@ function TicketSection({ signedIn }: { signedIn: boolean }) {
   const [err, setErr] = useState<string | null>(null);
 
   return (
-    <section className="mt-6 rounded-lg border bg-card p-6 shadow-sm">
+    <section className="mt-6 rounded-lg border bg-card p-6 shadow-elev-1">
       <div className="mb-1 flex items-center gap-2">
         <Ticket className="h-4 w-4 text-muted-foreground" />
         <h2 className="text-base font-medium">Ticket destinations</h2>
@@ -428,7 +428,7 @@ function SlackSection({ signedIn }: { signedIn: boolean }) {
   const [err, setErr] = useState<string | null>(null);
 
   return (
-    <section className="mt-6 rounded-lg border bg-card p-6 shadow-sm">
+    <section className="mt-6 rounded-lg border bg-card p-6 shadow-elev-1">
       <div className="mb-1 flex items-center gap-2">
         <Hash className="h-4 w-4 text-muted-foreground" />
         <h2 className="text-base font-medium">Slack notifications</h2>
@@ -728,7 +728,7 @@ function SpendCard({
     | undefined;
 }) {
   return (
-    <section className="rounded-lg border bg-card p-6 shadow-sm">
+    <section className="rounded-lg border bg-card p-6 shadow-elev-1">
       <div className="mb-1 flex items-center gap-2">
         <Wallet className="h-4 w-4 text-muted-foreground" />
         <h2 className="text-base font-medium">Spend this month</h2>

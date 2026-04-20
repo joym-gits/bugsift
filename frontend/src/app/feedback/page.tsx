@@ -85,11 +85,12 @@ function CreateForm({
   const ticketDests = useTicketDestinations(true);
 
   return (
-    <section className="rounded-lg border bg-card p-6 shadow-sm">
+    <section className="rounded-lg border bg-card p-6 shadow-elev-1">
       <h2 className="text-base font-medium">Register a new app</h2>
       <p className="mt-1 text-sm text-muted-foreground">
         Pick a descriptive name and the repo you want approved feedback to land
-        in. You can leave the origin allowlist blank during development.
+        in. List at least one origin where the widget will be embedded — a
+        leaked public key can otherwise be reused from any site.
       </p>
 
       <form
@@ -212,7 +213,7 @@ function CreateForm({
         </div>
 
         <div className="sm:col-span-2 space-y-1">
-          <Label htmlFor="origins">Allowed origins (optional, space or comma separated)</Label>
+          <Label htmlFor="origins">Allowed origins (required, space or comma separated)</Label>
           <Input
             id="origins"
             value={origins}
@@ -244,7 +245,7 @@ function AppCard({ app }: { app: FeedbackApp }) {
   );
 
   return (
-    <li className="rounded-lg border bg-card p-5 shadow-sm">
+    <li className="rounded-lg border bg-card p-5 shadow-elev-1">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="truncate text-base font-medium">{app.name}</div>

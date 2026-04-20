@@ -4,8 +4,10 @@ import { useMemo, useState } from "react";
 import { History as HistoryIcon } from "lucide-react";
 
 import { AppShell, EmptyState, PageHeader, Skeleton } from "@/components/AppShell";
+import { SideSheet } from "@/components/SideSheet";
 import { TriageCard } from "@/components/TriageCard";
-import { type CardFilters, useCards, useMe } from "@/lib/hooks";
+import { TriageTile } from "@/components/TriageTile";
+import { type Card, type CardFilters, useCards, useMe } from "@/lib/hooks";
 
 const CLASSIFICATION_OPTIONS = [
   { value: "", label: "any classification" },
@@ -39,6 +41,7 @@ export default function HistoryPage() {
   const [status, setStatus] = useState("");
   const [classification, setClassification] = useState("");
   const [verdict, setVerdict] = useState("");
+  const [openCardId, setOpenCardId] = useState<number | null>(null);
   const filters: CardFilters = useMemo(
     () => ({
       status: status || undefined,
@@ -49,6 +52,8 @@ export default function HistoryPage() {
     [status, classification, verdict],
   );
   const cards = useCards(signedIn, filters);
+  const openCard: Card | null =
+    (cards.data ?? []).find((c) => c.id === openCardId) ?? null;
 
   return (
     <AppShell me={me.data ?? null}>
@@ -65,7 +70,7 @@ export default function HistoryPage() {
             description="Every card, read-only. Filters are AND-combined."
           />
 
-          <section className="mb-6 flex flex-wrap gap-3 rounded-lg border bg-card p-4 shadow-sm">
+          <section className="mb-6 flex flex-wrap gap-3 rounded-lg border bg-card p-4 shadow-elev-1">
             <Filter id="status" label="Status" value={status} onChange={setStatus} options={STATUS_OPTIONS} />
             <Filter
               id="classification"
@@ -84,15 +89,21 @@ export default function HistoryPage() {
           </section>
 
           {cards.isLoading ? (
-            <div className="space-y-3">
-              <Skeleton className="h-32 w-full" />
-              <Skeleton className="h-32 w-full" />
+            <div className="grid gap-6 md:grid-cols-2 2xl:grid-cols-3">
+              <Skeleton className="h-44 w-full" />
+              <Skeleton className="h-44 w-full" />
+              <Skeleton className="h-44 w-full" />
+              <Skeleton className="h-44 w-full" />
             </div>
           ) : cards.data && cards.data.length > 0 ? (
-            <ul className="space-y-3">
+            <ul className="grid gap-6 md:grid-cols-2 2xl:grid-cols-3">
               {cards.data.map((c) => (
                 <li key={c.id}>
-                  <TriageCard card={c} />
+                  <TriageTile
+                    card={c}
+                    active={c.id === openCardId}
+                    onOpen={() => setOpenCardId(c.id)}
+                  />
                 </li>
               ))}
             </ul>
@@ -103,6 +114,24 @@ export default function HistoryPage() {
               description="Try loosening the filters above. If your installation is fresh, open an issue on an installed repo to start building history."
             />
           )}
+
+          <SideSheet
+            open={openCard !== null}
+            onClose={() => setOpenCardId(null)}
+            title={
+              openCard
+                ? `${openCard.repo_full_name}${
+                    openCard.issue_number !== null
+                      ? ` · #${openCard.issue_number}`
+                      : openCard.github_issue_number
+                        ? ` · #${openCard.github_issue_number}`
+                        : ""
+                  }`
+                : null
+            }
+          >
+            {openCard && <TriageCard card={openCard} />}
+          </SideSheet>
         </>
       )}
     </AppShell>

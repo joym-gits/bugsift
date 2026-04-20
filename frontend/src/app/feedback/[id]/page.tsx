@@ -133,7 +133,7 @@ function AnalysisSection({
 
   return (
     <div className="space-y-6">
-      <section className="rounded-lg border bg-card p-6 shadow-sm">
+      <section className="rounded-lg border bg-card p-6 shadow-elev-1">
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="flex items-center gap-2">
@@ -261,9 +261,9 @@ function AnalysisSection({
 
 function StatusPill({ status }: { status: RepoAnalysis["status"] }) {
   const map: Record<RepoAnalysis["status"], string> = {
-    pending: "border-amber-500/40 bg-amber-500/10 text-amber-700",
+    pending: "border-warning/40 bg-warning/10 text-warning",
     running: "border-primary/40 bg-primary/10 text-primary",
-    ready: "border-green-600/40 bg-green-600/10 text-green-700",
+    ready: "border-success/40 bg-success/10 text-success",
     failed: "border-destructive/40 bg-destructive/10 text-destructive",
   };
   return (
@@ -279,7 +279,7 @@ function SummaryBlock({ analysis }: { analysis: RepoAnalysis }) {
   const s = analysis.structured_json?.summary;
   if (!s) return null;
   return (
-    <section className="rounded-lg border bg-card p-6 shadow-sm">
+    <section className="rounded-lg border bg-card p-6 shadow-elev-1">
       <h3 className="mb-2 text-sm font-medium uppercase tracking-wide text-muted-foreground">
         Summary
       </h3>
@@ -295,7 +295,7 @@ function DiagramBlock({ analysis }: { analysis: RepoAnalysis }) {
     "";
   if (!src.trim()) return null;
   return (
-    <section className="rounded-lg border bg-card p-6 shadow-sm">
+    <section className="rounded-lg border bg-card p-6 shadow-elev-1">
       <h3 className="mb-3 text-sm font-medium uppercase tracking-wide text-muted-foreground">
         Architecture diagram
       </h3>
@@ -308,7 +308,7 @@ function ComponentsBlock({ analysis }: { analysis: RepoAnalysis }) {
   const components = analysis.structured_json?.components ?? [];
   if (components.length === 0) return null;
   return (
-    <section className="rounded-lg border bg-card p-6 shadow-sm">
+    <section className="rounded-lg border bg-card p-6 shadow-elev-1">
       <h3 className="mb-3 text-sm font-medium uppercase tracking-wide text-muted-foreground">
         Components
       </h3>
@@ -343,7 +343,7 @@ function FlowsBlock({ analysis }: { analysis: RepoAnalysis }) {
   const flows = analysis.structured_json?.flows ?? [];
   if (flows.length === 0) return null;
   return (
-    <section className="rounded-lg border bg-card p-6 shadow-sm">
+    <section className="rounded-lg border bg-card p-6 shadow-elev-1">
       <h3 className="mb-3 text-sm font-medium uppercase tracking-wide text-muted-foreground">
         Flows
       </h3>
@@ -369,7 +369,7 @@ function EntryPointsBlock({ analysis }: { analysis: RepoAnalysis }) {
   const deps = analysis.structured_json?.dependencies ?? [];
   if (entries.length === 0 && deps.length === 0) return null;
   return (
-    <section className="rounded-lg border bg-card p-6 shadow-sm">
+    <section className="rounded-lg border bg-card p-6 shadow-elev-1">
       {entries.length > 0 && (
         <>
           <h3 className="mb-3 text-sm font-medium uppercase tracking-wide text-muted-foreground">
@@ -426,7 +426,7 @@ function OverridesBlock({
   onRegenerate: () => void;
 }) {
   return (
-    <section className="rounded-lg border bg-card p-6 shadow-sm">
+    <section className="rounded-lg border bg-card p-6 shadow-elev-1">
       <div className="flex items-center gap-2">
         <MessageSquare className="h-4 w-4 text-muted-foreground" />
         <h3 className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
@@ -510,7 +510,7 @@ function ChatBlock({ appId }: { appId: number }) {
   const messages = chats.data ?? [];
 
   return (
-    <section className="rounded-lg border bg-card p-6 shadow-sm">
+    <section className="rounded-lg border bg-card p-6 shadow-elev-1">
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-2">
           <MessageSquare className="h-4 w-4 text-muted-foreground" />
@@ -616,7 +616,7 @@ function TrendsSection({ appId }: { appId: number }) {
   const current: FeedbackDigest | null = digests.data?.[0] ?? null;
 
   return (
-    <section className="mb-6 rounded-lg border bg-card p-6 shadow-sm">
+    <section className="mb-6 rounded-lg border bg-card p-6 shadow-elev-1">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h2 className="text-base font-medium">Trends this week</h2>
@@ -685,9 +685,9 @@ function DigestBody({ digest }: { digest: FeedbackDigest }) {
           className={
             "rounded-full border px-2.5 py-1 text-xs font-medium " +
             (delta > 0
-              ? "border-red-500/40 bg-red-500/10 text-red-700"
+              ? "border-destructive/40 bg-destructive/10 text-destructive"
               : delta < 0
-                ? "border-green-600/40 bg-green-600/10 text-green-700"
+                ? "border-success/40 bg-success/10 text-success"
                 : "border-border bg-muted/30 text-muted-foreground")
           }
         >
@@ -709,8 +709,8 @@ function DigestBody({ digest }: { digest: FeedbackDigest }) {
               if (!n) return [];
               const cls = {
                 blocker: "border-destructive/50 bg-destructive/10 text-destructive",
-                high: "border-red-500/40 bg-red-500/10 text-red-700",
-                medium: "border-amber-500/40 bg-amber-500/10 text-amber-700",
+                high: "border-destructive/40 bg-destructive/10 text-destructive",
+                medium: "border-warning/40 bg-warning/10 text-warning",
                 low: "border-border bg-muted/30 text-muted-foreground",
                 none: "border-border bg-muted/20 text-muted-foreground",
               }[key];

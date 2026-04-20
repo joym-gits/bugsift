@@ -15,17 +15,22 @@
     "@tanstack/react-query": "^5.32.0",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.0",
+    "dompurify": "^3.4.0",
+    "geist": "^1.7.0",
     "lucide-react": "^0.376.0",
-    "mermaid": "^10.9.0",
+    "mermaid": "^11.14.0",
     "next": "14.2.35",
+    "next-themes": "^0.3.0",
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "tailwind-merge": "^2.3.0",
     "tailwindcss-animate": "^1.0.7"
   },
   "devDependencies": {
+    "@playwright/test": "^1.44.0",
     "@testing-library/jest-dom": "^6.4.2",
     "@testing-library/react": "^15.0.0",
+    "@types/dompurify": "^3.0.5",
     "@types/node": "^20.12.7",
     "@types/react": "^18.3.1",
     "@types/react-dom": "^18.3.0",
@@ -37,7 +42,6 @@
     "postcss": "^8.4.38",
     "tailwindcss": "^3.4.3",
     "typescript": "^5.4.5",
-    "vitest": "^1.5.0",
-    "@playwright/test": "^1.44.0"
+    "vitest": "^1.5.0"
   }
 }

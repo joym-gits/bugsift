@@ -119,7 +119,7 @@ function NotConfigured() {
 
 function AppSection({ details }: { details: AppDetails }) {
   return (
-    <section className="rounded-lg border bg-card p-6 shadow-sm">
+    <section className="rounded-lg border bg-card p-6 shadow-elev-1">
       <div className="mb-1 flex items-center gap-2">
         <Github className="h-4 w-4 text-muted-foreground" />
         <h2 className="text-base font-medium">Registered App</h2>
@@ -189,7 +189,7 @@ function AppSection({ details }: { details: AppDetails }) {
 
 function TunnelSection({ details }: { details: AppDetails }) {
   return (
-    <section className="rounded-lg border bg-card p-6 shadow-sm">
+    <section className="rounded-lg border bg-card p-6 shadow-elev-1">
       <div className="mb-1 flex items-center gap-2">
         <Webhook className="h-4 w-4 text-muted-foreground" />
         <h2 className="text-base font-medium">Webhook tunnel</h2>
@@ -213,12 +213,12 @@ function TunnelSection({ details }: { details: AppDetails }) {
           </dt>
           <dd className="mt-1 flex items-center gap-2">
             {details.tunnel_running ? (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-green-600/40 bg-green-600/10 px-2 py-0.5 text-xs font-medium text-green-700">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-success/40 bg-success/10 px-2 py-0.5 text-xs font-medium text-success">
                 <Check className="h-3 w-3" />
                 running
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-700">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning">
                 <AlertTriangle className="h-3 w-3" />
                 stopped
               </span>
@@ -247,7 +247,7 @@ function InstallationsSection({
   const [hydrateError, setHydrateError] = useState<string | null>(null);
 
   return (
-    <section className="rounded-lg border bg-card p-6 shadow-sm">
+    <section className="rounded-lg border bg-card p-6 shadow-elev-1">
       <div className="mb-1 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <KeyRound className="h-4 w-4 text-muted-foreground" />
@@ -328,7 +328,7 @@ function InstallationsSection({
                   {inst.repo_count} repo{inst.repo_count === 1 ? "" : "s"} · installed{" "}
                   {new Date(inst.installed_at).toLocaleDateString()}
                   {inst.suspended_at && (
-                    <span className="ml-2 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-700">
+                    <span className="ml-2 rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning">
                       suspended
                     </span>
                   )}
@@ -363,7 +363,7 @@ function ReposSection({ signedIn }: { signedIn: boolean }) {
   } | null>(null);
 
   return (
-    <section className="rounded-lg border bg-card p-6 shadow-sm">
+    <section className="rounded-lg border bg-card p-6 shadow-elev-1">
       <div className="mb-1 flex items-center gap-2">
         <Inbox className="h-4 w-4 text-muted-foreground" />
         <h2 className="text-base font-medium">Synced repos</h2>

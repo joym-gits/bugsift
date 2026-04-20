@@ -48,7 +48,7 @@ export function TriageCard({ card }: { card: Card }) {
   const isStuck = isPending && !card.classification;
 
   return (
-    <article className="rounded-md border bg-card p-4 shadow-sm">
+    <article className="rounded-md border bg-card p-4 shadow-elev-1">
       <header className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="truncate text-sm font-medium">
@@ -69,7 +69,7 @@ export function TriageCard({ card }: { card: Card }) {
               className={
                 "rounded-full border px-2 py-0.5 " +
                 (card.source === "feedback"
-                  ? "border-blue-500/40 bg-blue-500/10 text-blue-700"
+                  ? "border-info/40 bg-info/10 text-info"
                   : "")
               }
             >
@@ -106,7 +106,7 @@ export function TriageCard({ card }: { card: Card }) {
       {card.source === "feedback" && <FeedbackReports cardId={card.id} />}
 
       {card.budget_limited && (
-        <div className="mt-2 inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+        <div className="mt-2 inline-flex items-center gap-1 rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-[10px] font-medium text-warning">
           budget exhausted · expensive steps skipped
         </div>
       )}
@@ -268,8 +268,8 @@ export function TriageCard({ card }: { card: Card }) {
       )}
 
       {card.regression_suspects && card.regression_suspects.length > 0 && (
-        <div className="mt-3 rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-sm">
-          <div className="text-xs font-medium uppercase tracking-wide text-amber-700">
+        <div className="mt-3 rounded-md border border-warning/40 bg-warning/5 p-3 text-sm">
+          <div className="text-xs font-medium uppercase tracking-wide text-warning">
             Possible cause — recent pushes that touched suspected files
           </div>
           <ul className="mt-2 space-y-2">
@@ -292,7 +292,7 @@ export function TriageCard({ card }: { card: Card }) {
                       href={`https://github.com/${card.repo_full_name}/pull/${s.pr_number}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-700 underline underline-offset-4"
+                      className="rounded border border-warning/40 bg-warning/10 px-1.5 py-0.5 text-[10px] text-warning underline underline-offset-4"
                     >
                       PR #{s.pr_number}
                     </a>
@@ -559,15 +559,15 @@ function FeedbackReports({ cardId }: { cardId: number }) {
   );
 }
 
-function SeverityPill({
+export function SeverityPill({
   severity,
 }: {
   severity: NonNullable<Card["severity"]>;
 }) {
   const cls: Record<NonNullable<Card["severity"]>, string> = {
     blocker: "border-destructive/50 bg-destructive/10 text-destructive",
-    high: "border-red-500/40 bg-red-500/10 text-red-700",
-    medium: "border-amber-500/40 bg-amber-500/10 text-amber-700",
+    high: "border-destructive/40 bg-destructive/10 text-destructive",
+    medium: "border-warning/40 bg-warning/10 text-warning",
     low: "border-border bg-muted/40 text-muted-foreground",
   };
   return (
@@ -585,7 +585,7 @@ function verdictBadgeClass(verdict: string): string {
     case "reproduced":
       return `${base} border-destructive/40 bg-destructive/10 text-destructive`;
     case "not_reproduced":
-      return `${base} border-green-600/40 bg-green-600/10 text-green-700`;
+      return `${base} border-success/40 bg-success/10 text-success`;
     default:
       return `${base}`;
   }

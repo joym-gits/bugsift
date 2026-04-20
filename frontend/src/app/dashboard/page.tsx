@@ -5,10 +5,13 @@ import { useState } from "react";
 import { Inbox, GitBranch, Rocket, ArrowRight, RefreshCw } from "lucide-react";
 
 import { AppShell, EmptyState, PageHeader, Skeleton } from "@/components/AppShell";
+import { SideSheet } from "@/components/SideSheet";
 import { TriageCard } from "@/components/TriageCard";
+import { TriageTile } from "@/components/TriageTile";
 import { Button } from "@/components/ui/button";
 import { API_BASE_URL } from "@/lib/api";
 import {
+  type Card,
   type Repo,
   useAppStatus,
   useCards,
@@ -22,11 +25,14 @@ export default function DashboardPage() {
   const me = useMe();
   const signedIn = Boolean(me.data);
   const [severityFilter, setSeverityFilter] = useState<string>("");
+  const [openCardId, setOpenCardId] = useState<number | null>(null);
   const cards = useCards(signedIn, {
     status: "pending",
     limit: 50,
     severity: severityFilter || undefined,
   });
+  const openCard: Card | null =
+    (cards.data ?? []).find((c) => c.id === openCardId) ?? null;
   const repos = useRepos(signedIn);
   const keys = useKeys(signedIn);
   // Public endpoint — call it even signed-out so we know whether to show
@@ -66,22 +72,28 @@ export default function DashboardPage() {
             />
           )}
 
-          <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
+          <div className="grid gap-6 lg:grid-cols-[260px_1fr]">
             <aside className="space-y-4">
               <RepoList loading={repos.isLoading} repos={repos.data ?? []} />
             </aside>
 
             <section>
               {cards.isLoading ? (
-                <div className="space-y-3">
-                  <Skeleton className="h-36 w-full" />
-                  <Skeleton className="h-36 w-full" />
+                <div className="grid gap-6 md:grid-cols-2 2xl:grid-cols-3">
+                  <Skeleton className="h-44 w-full" />
+                  <Skeleton className="h-44 w-full" />
+                  <Skeleton className="h-44 w-full" />
+                  <Skeleton className="h-44 w-full" />
                 </div>
               ) : cards.data && cards.data.length > 0 ? (
-                <ul className="space-y-3">
+                <ul className="grid gap-6 md:grid-cols-2 2xl:grid-cols-3">
                   {cards.data.map((c) => (
                     <li key={c.id}>
-                      <TriageCard card={c} />
+                      <TriageTile
+                        card={c}
+                        active={c.id === openCardId}
+                        onOpen={() => setOpenCardId(c.id)}
+                      />
                     </li>
                   ))}
                 </ul>
@@ -102,6 +114,24 @@ export default function DashboardPage() {
               )}
             </section>
           </div>
+
+          <SideSheet
+            open={openCard !== null}
+            onClose={() => setOpenCardId(null)}
+            title={
+              openCard
+                ? `${openCard.repo_full_name}${
+                    openCard.issue_number !== null
+                      ? ` · #${openCard.issue_number}`
+                      : openCard.github_issue_number
+                        ? ` · #${openCard.github_issue_number}`
+                        : ""
+                  }`
+                : null
+            }
+          >
+            {openCard && <TriageCard card={openCard} />}
+          </SideSheet>
         </>
       )}
     </AppShell>
@@ -110,7 +140,7 @@ export default function DashboardPage() {
 
 function RepoList({ loading, repos }: { loading: boolean; repos: Repo[] }) {
   return (
-    <div className="rounded-lg border bg-card p-4 shadow-sm">
+    <div className="rounded-lg border bg-card p-4 shadow-elev-1">
       <div className="mb-3 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
         <GitBranch className="h-3.5 w-3.5" />
         Installed repos
@@ -145,13 +175,13 @@ function RepoList({ loading, repos }: { loading: boolean; repos: Repo[] }) {
 function StuckCardsBanner({ count, ids }: { count: number; ids: number[] }) {
   const rerun = useRerunCard();
   return (
-    <div className="mb-6 flex items-center gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-4">
-      <RefreshCw className="h-5 w-5 shrink-0 text-amber-700" />
+    <div className="mb-6 flex items-center gap-3 rounded-lg border border-warning/40 bg-warning/10 p-4">
+      <RefreshCw className="h-5 w-5 shrink-0 text-warning" />
       <div className="flex-1 text-sm">
-        <div className="font-medium text-amber-900">
+        <div className="font-medium text-foreground">
           {count} card{count === 1 ? "" : "s"} never got classified
         </div>
-        <div className="text-amber-800/80">
+        <div className="text-muted-foreground">
           Usually means no LLM key was configured when the issue arrived. Now
           that your key is set, you can retry all of them at once.
         </div>
@@ -295,8 +325,8 @@ function SeverityFilter({
     { value: "low", label: "⚪ Low" },
   ];
   return (
-    <div className="mb-4 flex items-center gap-1 text-xs">
-      <span className="mr-1 text-muted-foreground">Severity:</span>
+    <div className="mb-6 flex items-center gap-1.5 text-[13px]">
+      <span className="mr-2 text-muted-foreground">Severity</span>
       {options.map((opt) => {
         const active = value === opt.value;
         return (
