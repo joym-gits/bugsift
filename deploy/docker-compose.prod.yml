@@ -1,0 +1,165 @@
+# bugsift — self-host production stack.
+#
+# Download this file and the sibling ``.env.example``, then run:
+#
+#     curl -fsSL https://raw.githubusercontent.com/joym-gits/bugsift/main/deploy/install.sh | bash
+#
+# The installer generates secrets, writes ``.env``, pulls pre-built
+# images from GitHub Container Registry, runs migrations, and starts
+# the stack. You don't need to clone the repo to run bugsift.
+#
+# Ports: the nginx front-end listens on 8080 by default. Put Caddy or
+# another reverse proxy in front if you want TLS (see ``Caddyfile.example``
+# + ``docker-compose.caddy.yml``).
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg15
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    image: ghcr.io/${BUGSIFT_IMAGE_OWNER:-joym-gits}/bugsift-backend:${BUGSIFT_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      BUGSIFT_ROLE: api
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    image: ghcr.io/${BUGSIFT_IMAGE_OWNER:-joym-gits}/bugsift-backend:${BUGSIFT_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      BUGSIFT_ROLE: worker
+      DOCKER_HOST: tcp://docker-proxy:2375
+    command: ["python", "-m", "bugsift.workers.runner"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      docker-proxy:
+        condition: service_started
+
+  # Scoped Docker-API gateway. The host socket is mounted read-only
+  # here *only*; the worker reaches Docker through HTTP over the
+  # compose network and the proxy denies every API endpoint except the
+  # ones the repro sandbox needs (containers + images, POST + DELETE).
+  docker-proxy:
+    image: tecnativa/docker-socket-proxy:0.3
+    restart: unless-stopped
+    environment:
+      CONTAINERS: 1
+      IMAGES: 1
+      POST: 1
+      DELETE: 1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  frontend:
+    image: ghcr.io/${BUGSIFT_IMAGE_OWNER:-joym-gits}/bugsift-frontend:${BUGSIFT_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL}
+    depends_on:
+      - backend
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "${BUGSIFT_PUBLIC_PORT:-8080}:8080"
+    configs:
+      - source: nginx_conf
+        target: /etc/nginx/nginx.conf
+    depends_on:
+      - backend
+      - frontend
+
+configs:
+  nginx_conf:
+    # Inline config so operators only need to ``docker compose up`` —
+    # no sibling files to download. Mirrors nginx/nginx.conf in the
+    # source tree; keep in sync when that changes.
+    content: |
+      worker_processes auto;
+      events { worker_connections 1024; }
+      http {
+          include       /etc/nginx/mime.types;
+          default_type  application/octet-stream;
+          sendfile      on;
+          keepalive_timeout 65;
+          client_max_body_size 8M;
+          resolver 127.0.0.11 valid=10s ipv6=off;
+          server_tokens off;
+
+          server {
+              listen 8080;
+              server_name _;
+
+              location /api/ {
+                  set $$backend "backend:8000";
+                  rewrite ^/api/(.*)$$ /$$1 break;
+                  proxy_pass http://$$backend;
+                  proxy_http_version 1.1;
+                  proxy_set_header Host              $$host;
+                  proxy_set_header X-Real-IP         $$remote_addr;
+                  proxy_set_header X-Forwarded-For   $$proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto $$scheme;
+                  proxy_read_timeout 120s;
+                  add_header X-Content-Type-Options "nosniff" always;
+                  add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+              }
+
+              location / {
+                  set $$frontend "frontend:3000";
+                  proxy_pass http://$$frontend;
+                  proxy_http_version 1.1;
+                  proxy_set_header Host              $$host;
+                  proxy_set_header X-Real-IP         $$remote_addr;
+                  proxy_set_header X-Forwarded-For   $$proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto $$scheme;
+                  proxy_set_header Upgrade           $$http_upgrade;
+                  proxy_set_header Connection        "upgrade";
+                  add_header X-Frame-Options "DENY" always;
+                  add_header X-Content-Type-Options "nosniff" always;
+                  add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+                  add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
+              }
+          }
+      }
+
+volumes:
+  postgres_data:
+  redis_data:

@@ -1,0 +1,63 @@
+# bugsift — Caddy TLS front-end override.
+#
+# Adds Caddy in front of the bundled nginx, provisions Let's Encrypt
+# certificates automatically, and stops exposing nginx on 8080. Drop
+# it alongside ``docker-compose.prod.yml`` and merge at startup:
+#
+#     docker compose -f docker-compose.yml -f docker-compose.caddy.yml up -d
+#
+# Requirements:
+#
+#   1. A domain pointed at this server's public IP (A/AAAA).
+#   2. Inbound 80 + 443 reachable from the internet so Caddy can solve
+#      HTTP-01 / TLS-ALPN challenges.
+#   3. ``BUGSIFT_DOMAIN`` and ``BUGSIFT_ACME_EMAIL`` set in your .env:
+#
+#         BUGSIFT_DOMAIN=bugs.example.com
+#         BUGSIFT_ACME_EMAIL=ops@example.com
+#         # Also update BUGSIFT_PUBLIC_URL so OAuth callbacks work:
+#         BUGSIFT_PUBLIC_URL=https://bugs.example.com
+#         NEXT_PUBLIC_API_BASE_URL=https://bugs.example.com/api
+#
+# Caddy writes certs and its own config-derived data to two volumes so
+# they survive a restart without re-hitting Let's Encrypt rate limits.
+
+services:
+  nginx:
+    # Stop binding the host's 8080 — Caddy owns the edge now.
+    ports: !reset []
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      BUGSIFT_DOMAIN: ${BUGSIFT_DOMAIN}
+      BUGSIFT_ACME_EMAIL: ${BUGSIFT_ACME_EMAIL}
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - nginx
+
+configs:
+  caddyfile:
+    # Inline so operators don't need to download a sibling file.
+    # Caddy substitutes ``{$ENV}`` at load from the container env.
+    content: |
+      {
+          email {$BUGSIFT_ACME_EMAIL}
+      }
+      {$BUGSIFT_DOMAIN} {
+          encode zstd gzip
+          reverse_proxy nginx:8080
+      }
+
+volumes:
+  caddy_data:
+  caddy_config:

@@ -31,9 +31,24 @@ In **dry-run** the maintainer approves / edits / skips each card from the
 dashboard. In **auto** mode, allow-listed actions (confirmed duplicates,
 needs-info) execute without approval. Everything is per-repo configurable.
 
-## Quick start (local)
+## Self-host in one command
 
-Requires Docker 24+ and Docker Compose.
+**You do not need to clone this repository to run bugsift.** The
+installer downloads a single `docker-compose.yml`, generates every
+secret, pulls pre-built images from GitHub Container Registry, runs
+migrations, and prints your dashboard URL + first-run token:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/joym-gits/bugsift/main/deploy/install.sh | bash
+```
+
+Total time from shell to first triaged issue: under five minutes. See
+[deploy/README.md](deploy/README.md) for the full self-host guide —
+upgrades, backups, TLS via Caddy, configuration reference.
+
+## Running from source (contributors)
+
+If you're hacking on bugsift itself, clone and build locally:
 
 ```bash
 git clone https://github.com/joym-gits/bugsift.git
@@ -75,7 +90,7 @@ order. See [docs/architecture.md](docs/architecture.md).
 - **GitHub only.** No GitLab / Bitbucket / Gitea.
 - **No Slack / email / web intake.** Issues only.
 - **No chat UI.** The agent acts; the maintainer ratifies.
-- **No hosted SaaS.** Self-hostable `docker-compose` stack only.
+- **No hosted SaaS.** Self-hostable `docker-compose` stack only — install in one command; see [deploy/README.md](deploy/README.md).
 - **No agent framework** dependency.
 
 ## Repo layout
