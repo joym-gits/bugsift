@@ -5,6 +5,7 @@ import {
   GitPullRequestArrow,
   MessageSquareWarning,
   ShieldCheck,
+  Sparkles,
   UserRound,
 } from "lucide-react";
 
@@ -38,6 +39,7 @@ export function TriageTile({
     ? Object.values(card.pii_redacted).reduce((a, b) => a + b, 0)
     : 0;
   const sla = slaStatus(card);
+  const correctionsApplied = card.corrections_applied_count ?? 0;
 
   return (
     <button
@@ -115,6 +117,15 @@ export function TriageTile({
           >
             <Clock className="h-3 w-3" />
             {sla.label}
+          </span>
+        )}
+        {correctionsApplied > 0 && (
+          <span
+            className="inline-flex items-center gap-1 rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-primary"
+            title={`The orchestrator applied ${correctionsApplied} past operator correction${correctionsApplied === 1 ? "" : "s"} from this repo when classifying and drafting this card.`}
+          >
+            <Sparkles className="h-3 w-3" />
+            learning from {correctionsApplied}
           </span>
         )}
         {typeof card.confidence === "number" && (

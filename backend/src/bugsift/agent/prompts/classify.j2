@@ -29,6 +29,15 @@ Primary language: {{ repo_primary_language or "unknown" }}
 {% if existing_labels %}
 Existing labels on this issue: {{ existing_labels | join(", ") }}
 {% endif %}
+{% if recent_corrections %}
+
+Recent operator guidance (learn from these — the operator overrode the
+automated suggestion on prior issues from this repo; prefer choices
+consistent with these decisions when the input is analogous):
+{% for bullet in recent_corrections %}
+{{ bullet }}
+{% endfor %}
+{% endif %}
 
 Issue title: {{ issue_title }}
 

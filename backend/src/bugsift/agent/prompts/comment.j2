@@ -35,6 +35,15 @@ Log excerpt:
 {{ reproduction_log }}
 {% endif %}
 
+{% if recent_corrections %}
+Recent operator guidance on this repo (prior human edits / overrides
+of automated suggestions — match their voice and label choices when
+the issue shape is analogous):
+{% for bullet in recent_corrections %}
+{{ bullet }}
+{% endfor %}
+{% endif %}
+
 Issue body:
 {{ issue_body or "(empty)" }}
 

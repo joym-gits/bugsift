@@ -205,6 +205,12 @@ class TriageCard(Base):
     sla_breach_alerted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Number of past operator corrections the orchestrator pulled in
+    # as guidance when this card was classified. ``None`` = pre-
+    # feedback-loop card; ``0`` = pipeline ran but no relevant
+    # corrections existed; positive = the pill on the tile shows the
+    # loop is working.
+    corrections_applied_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     raw_payload_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -610,6 +616,40 @@ class GithubAppCredentials(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class CardCorrection(Base):
+    """Delta between what the pipeline suggested on a card and what
+    the operator ultimately chose. Written on every approve / skip /
+    edit / reclassify; read by future triage runs as "recent operator
+    guidance" so the pipeline compounds with use.
+
+    ``card_id`` is nullable so corrections survive card deletions
+    (which rerun triggers); ``user_id`` is nullable to survive user
+    deletions too — the correction's content keeps its value either
+    way.
+    """
+
+    __tablename__ = "card_corrections"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    repo_id: Mapped[int] = mapped_column(
+        ForeignKey("repos.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    card_id: Mapped[int | None] = mapped_column(
+        ForeignKey("triage_cards.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    action: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    before_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    after_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    issue_context: Mapped[str | None] = mapped_column(Text, nullable=True)
+    classification: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
     )
 
 

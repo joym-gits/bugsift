@@ -12,6 +12,7 @@ from sqlalchemy.orm import aliased
 from bugsift.api.deps import get_current_user, get_session
 from bugsift.audit.log import Action, record as audit_record
 from bugsift.auth.roles import Role, require_role
+from bugsift.corrections.capture import diff_approve, record_correction
 from bugsift.db.models import (
     FeedbackApp,
     FeedbackReport,
@@ -101,6 +102,10 @@ class CardResponse(BaseModel):
     # after which a still-pending card is considered breached.
     sla_minutes: int | None = None
     sla_breach_alerted_at: datetime | None = None
+    # Number of past operator corrections the orchestrator pulled in
+    # as guidance when this card was classified. ``null`` on cards
+    # produced before the feedback loop shipped.
+    corrections_applied_count: int | None = None
     final_comment: str | None = None
     created_at: datetime
 
@@ -236,6 +241,7 @@ async def edit_draft(
     card, repo, _ = await _get_owned_card(session, user, card_id)
     if card.status != "pending":
         raise HTTPException(status_code=409, detail=f"card is already {card.status}")
+    before_draft = card.draft_comment
     card.draft_comment = body.draft_comment
     await audit_record(
         session,
@@ -245,6 +251,16 @@ async def edit_draft(
         target_id=card.id,
         summary=f"edited draft on {repo.full_name}#{card.issue_number or ''}".rstrip("#"),
         request=request,
+    )
+    await record_correction(
+        session,
+        card=card,
+        user=user,
+        action="edit_comment",
+        before={"draft_comment": before_draft},
+        after={"draft_comment": body.draft_comment},
+        issue_title=None,
+        issue_body=None,
     )
     await session.commit()
     await session.refresh(card)
@@ -301,6 +317,24 @@ async def skip_card(
         summary=f"skipped {repo.full_name}#{card.issue_number or ''}".rstrip("#"),
         metadata={"classification": card.classification, "severity": card.severity},
         request=request,
+    )
+    # A skip on a card the pipeline already scored is itself a
+    # correction: the operator rejected the suggestion. Future runs
+    # will see the issue context and learn to be less aggressive on
+    # similarly-shaped inputs.
+    await record_correction(
+        session,
+        card=card,
+        user=user,
+        action="skip",
+        before={
+            "classification": card.classification,
+            "severity": card.severity,
+            "proposed_action": card.proposed_action,
+        },
+        after={"status": "skipped"},
+        issue_title=None,
+        issue_body=_issue_body_snippet(card),
     )
     await session.commit()
     await session.refresh(card)
@@ -376,6 +410,28 @@ async def approve_card(
         },
         request=request,
     )
+    # Feedback-loop capture: every meaningful divergence between what
+    # the pipeline suggested and what the operator actually approved
+    # becomes a correction row. Approving the suggestion as-is
+    # deliberately writes nothing (_is_trivial short-circuits).
+    final_labels = list(card.proposed_labels_json or [])
+    snippet = _issue_body_snippet(card)
+    for action, before, after in diff_approve(
+        card=card,
+        final_assignees=list(assignees_override or []) or None,
+        final_labels=final_labels,
+        final_comment=card.final_comment or card.draft_comment,
+    ):
+        await record_correction(
+            session,
+            card=card,
+            user=user,
+            action=action,
+            before=before,
+            after=after,
+            issue_title=None,
+            issue_body=snippet,
+        )
     await session.commit()
     await session.refresh(card)
     try:
@@ -619,6 +675,29 @@ async def _load_feedback_reports_for_card(
     return list(rows)
 
 
+def _issue_body_snippet(card: TriageCard) -> str | None:
+    """Pull issue title + body out of the stored raw payload for
+    correction-capture context. Returns a short merged string; the
+    capture helper clips further. GitHub webhook payloads keep the
+    issue under ``issue.*``; feedback-sourced cards don't carry the
+    body inline, so we return None and let the capture row store no
+    context (better than a misleading snippet)."""
+    payload = card.raw_payload_json
+    if not isinstance(payload, dict):
+        return None
+    issue = payload.get("issue")
+    if not isinstance(issue, dict):
+        return None
+    parts = []
+    title = issue.get("title")
+    body = issue.get("body")
+    if isinstance(title, str) and title.strip():
+        parts.append(title.strip())
+    if isinstance(body, str) and body.strip():
+        parts.append(body.strip())
+    return "\n".join(parts) if parts else None
+
+
 def _assignees_from_card(card: TriageCard) -> list[str]:
     raw = card.suggested_assignees_json
     if not isinstance(raw, list):
@@ -745,6 +824,7 @@ def _card_response(
         ),
         sla_minutes=card.sla_minutes,
         sla_breach_alerted_at=card.sla_breach_alerted_at,
+        corrections_applied_count=card.corrections_applied_count,
         final_comment=card.final_comment,
         created_at=card.created_at,
     )

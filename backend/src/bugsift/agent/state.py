@@ -112,6 +112,15 @@ class TriageState:
     # know when a report contained sensitive data.
     pii_redacted: dict[str, int] = field(default_factory=dict)
 
+    # Feedback-loop guidance. The orchestrator populates this once at
+    # the start of a run from :mod:`bugsift.corrections.retrieve` —
+    # recent operator corrections on the same repo + classification.
+    # Steps render it into their prompts as a "recent operator
+    # guidance" block so the pipeline compounds with use. Kept as
+    # pre-rendered bullets to avoid coupling step prompts to the
+    # correction record shape.
+    recent_corrections: list[str] = field(default_factory=list)
+
     # --- accumulated usage ---
     llm_calls: list[LLMCallRecord] = field(default_factory=list)
 

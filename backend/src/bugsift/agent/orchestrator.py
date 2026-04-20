@@ -23,6 +23,7 @@ from bugsift.agent.steps import dedup as dedup_step
 from bugsift.agent.steps import regression as regression_step
 from bugsift.agent.steps import reproduction as reproduction_step
 from bugsift.agent.steps import retrieval as retrieval_step
+from bugsift.corrections import retrieve as corrections_retrieve
 from bugsift.llm.base import LLMProvider
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,24 @@ async def run(
     budget_ok: bool = True,
     feedback_report_count: int = 0,
 ) -> TriageState:
+    # Feedback-loop learning: fetch the most recent operator
+    # corrections for this repo so classify/comment can render them
+    # as "recent operator guidance" in their prompts. Cheap indexed
+    # query, runs once per triage regardless of which steps are
+    # enabled. No classification filter on this first pull — we
+    # pass the most-recent slice and let step-level retrieval
+    # re-filter if it wants to.
+    if session is not None:
+        try:
+            refs = await corrections_retrieve.recent_corrections_for_repo(
+                session, state.repo_id, classification=None
+            )
+            state.recent_corrections = [r.to_prompt_bullet() for r in refs]
+        except Exception:
+            logger.exception(
+                "corrections: failed to fetch for repo_id=%s", state.repo_id
+            )
+
     if state.enabled_steps.get("classify", True):
         state = await classify_step.run(state, provider)
         if state.status == "complete":

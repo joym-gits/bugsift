@@ -307,6 +307,7 @@ export type Card = {
   pii_redacted?: Record<string, number> | null;
   sla_minutes?: number | null;
   sla_breach_alerted_at?: string | null;
+  corrections_applied_count?: number | null;
   final_comment?: string | null;
   created_at: string;
 };

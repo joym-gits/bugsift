@@ -29,6 +29,7 @@ async def run(state: TriageState, provider: LLMProvider) -> TriageState:
         issue_title=state.issue_title,
         issue_body=state.issue_body,
         existing_labels=state.existing_labels,
+        recent_corrections=state.recent_corrections,
     )
     response = await provider.complete(
         [ChatMessage(role="user", content=prompt)],
