@@ -103,6 +103,7 @@ export type Card = {
   proposed_action?: string | null;
   proposed_labels?: string[] | null;
   suspected_files?: SuspectedFile[] | null;
+  suggested_assignees?: string[] | null;
   duplicates?: DuplicateCandidate[] | null;
   regression_suspects?: RegressionSuspect[] | null;
   reproduction_verdict?:
@@ -702,6 +703,20 @@ export function useAddCorrection() {
   });
 }
 
+export function useRefreshCodeowners() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (repoId: number) =>
+      apiFetch<{ repo_id: number; queued: boolean }>(
+        `/repos/${repoId}/refresh-codeowners`,
+        { method: "POST" },
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["repos"] });
+    },
+  });
+}
+
 export function useBackfillRepo() {
   const qc = useQueryClient();
   return useMutation({
@@ -720,16 +735,27 @@ export function useApproveCard() {
     mutationFn: ({
       id,
       admin_note,
+      assignees,
     }: {
       id: number;
       admin_note?: string | null;
-    }) =>
-      apiFetch<Card>(`/cards/${id}/approve`, {
+      // ``undefined`` → server uses the card's suggestion as-is.
+      // ``[]``        → assign nobody (operator unchecked all).
+      // ``[...]``     → assign exactly these (must be a subset of suggestions).
+      assignees?: string[];
+    }) => {
+      const payload: Record<string, unknown> = {};
+      if (admin_note && admin_note.trim()) {
+        payload.admin_note = admin_note.trim();
+      }
+      if (assignees !== undefined) {
+        payload.assignees = assignees;
+      }
+      return apiFetch<Card>(`/cards/${id}/approve`, {
         method: "POST",
-        body: JSON.stringify(
-          admin_note && admin_note.trim() ? { admin_note: admin_note.trim() } : {},
-        ),
-      }),
+        body: JSON.stringify(payload),
+      });
+    },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["cards"] }),
   });
 }

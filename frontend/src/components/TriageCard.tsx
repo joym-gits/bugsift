@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { ApiError } from "@/lib/api";
@@ -29,6 +29,18 @@ export function TriageCard({ card }: { card: Card }) {
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionOk, setActionOk] = useState<string | null>(null);
   const [adminNote, setAdminNote] = useState("");
+  // Default selection = everyone CODEOWNERS suggested. Operator can
+  // uncheck anyone before approving; unchecking all means "assign
+  // nobody".
+  const [selectedAssignees, setSelectedAssignees] = useState<Set<string>>(
+    () => new Set(card.suggested_assignees ?? []),
+  );
+  useEffect(() => {
+    // When the suggestions change (e.g. card refetches after a rerun),
+    // reset to the new full set rather than preserving a stale
+    // selection from the previous suggestions.
+    setSelectedAssignees(new Set(card.suggested_assignees ?? []));
+  }, [card.id, (card.suggested_assignees ?? []).join(",")]);
 
   const isPending = card.status === "pending";
   // Card never got classified (e.g. no LLM key at ingest time) — show
@@ -126,6 +138,86 @@ export function TriageCard({ card }: { card: Card }) {
               {lbl}
             </span>
           ))}
+        </div>
+      )}
+
+      {card.suggested_assignees && card.suggested_assignees.length > 0 && (
+        <div className="mt-3 rounded-md border bg-muted/10 p-3 text-sm">
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Assign on approve (from CODEOWNERS)
+            </div>
+            {isPending && (
+              <div className="flex gap-2 text-[10px]">
+                <button
+                  type="button"
+                  className="underline underline-offset-4 text-muted-foreground hover:text-foreground"
+                  onClick={() =>
+                    setSelectedAssignees(
+                      new Set(card.suggested_assignees ?? []),
+                    )
+                  }
+                >
+                  all
+                </button>
+                <button
+                  type="button"
+                  className="underline underline-offset-4 text-muted-foreground hover:text-foreground"
+                  onClick={() => setSelectedAssignees(new Set())}
+                >
+                  none
+                </button>
+              </div>
+            )}
+          </div>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {card.suggested_assignees.map((login) => {
+              const checked = selectedAssignees.has(login);
+              const disabled = !isPending;
+              return (
+                <label
+                  key={login}
+                  className={
+                    "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs " +
+                    (disabled
+                      ? "cursor-default bg-background opacity-70"
+                      : checked
+                        ? "cursor-pointer bg-primary/10 border-primary/40 text-primary"
+                        : "cursor-pointer bg-background hover:bg-accent")
+                  }
+                >
+                  <input
+                    type="checkbox"
+                    className="h-3 w-3"
+                    checked={checked}
+                    disabled={disabled}
+                    onChange={(e) => {
+                      setSelectedAssignees((prev) => {
+                        const next = new Set(prev);
+                        if (e.target.checked) next.add(login);
+                        else next.delete(login);
+                        return next;
+                      });
+                    }}
+                  />
+                  <a
+                    href={`https://github.com/${login}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline-offset-4 hover:underline"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    @{login}
+                  </a>
+                </label>
+              );
+            })}
+          </div>
+          <p className="mt-2 text-[10px] text-muted-foreground">
+            {isPending
+              ? "Pick who gets this ticket on your team. GitHub silently drops logins who aren't collaborators on the repo."
+              : "Applied on approve; uncheck names before you approve to narrow the list."}
+          </p>
         </div>
       )}
 
@@ -302,6 +394,10 @@ export function TriageCard({ card }: { card: Card }) {
                           id: card.id,
                           admin_note:
                             card.source === "feedback" ? adminNote : undefined,
+                          assignees:
+                            (card.suggested_assignees?.length ?? 0) > 0
+                              ? Array.from(selectedAssignees)
+                              : undefined,
                         });
                         if (card.source === "feedback") {
                           const url =

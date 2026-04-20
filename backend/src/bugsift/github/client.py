@@ -75,6 +75,7 @@ class GithubClient:
         title: str,
         body: str,
         labels: list[str] | None = None,
+        assignees: list[str] | None = None,
     ) -> dict:
         """Open a new issue in ``repo_full_name``. Returns GitHub's response
         JSON so the caller can pull the new ``number`` and ``html_url``.
@@ -88,12 +89,36 @@ class GithubClient:
         payload: dict = {"title": title, "body": body}
         if labels:
             payload["labels"] = labels
+        if assignees:
+            payload["assignees"] = assignees
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 url, headers=_headers(token), json=payload, timeout=30.0
             )
         response.raise_for_status()
         return response.json()
+
+    async def add_assignees(
+        self,
+        repo_full_name: str,
+        issue_number: int,
+        assignees: list[str],
+    ) -> None:
+        """Add assignees to an existing issue. GitHub dedupes silently,
+        so calling this on an issue that already has one of the users
+        is safe. Non-members of the repo are ignored by GitHub."""
+        if not assignees:
+            return
+        token = await self._token()
+        url = f"{GITHUB_API_URL}/repos/{repo_full_name}/issues/{issue_number}/assignees"
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                url,
+                headers=_headers(token),
+                json={"assignees": assignees},
+                timeout=30.0,
+            )
+        response.raise_for_status()
 
 
 def _headers(token: str) -> dict[str, str]:

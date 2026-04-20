@@ -45,6 +45,7 @@ _enqueue_index_repo = enqueue_jobs.enqueue_index_repo
 _enqueue_index_repo_delta = enqueue_jobs.enqueue_index_repo_delta
 _enqueue_embed_issue = enqueue_jobs.enqueue_embed_issue
 _enqueue_backfill_open_issues = enqueue_jobs.enqueue_backfill_open_issues
+_enqueue_refresh_codeowners = enqueue_jobs.enqueue_refresh_codeowners
 
 
 @router.post("/github", status_code=status.HTTP_202_ACCEPTED)
@@ -165,6 +166,7 @@ async def _handle_installation(
             # issues land in the queue, not just issues opened after we
             # were installed.
             _enqueue_backfill_open_issues(repo_id)
+            _enqueue_refresh_codeowners(repo_id)
         return
     elif action == "deleted":
         if installation is not None:
@@ -197,6 +199,7 @@ async def _handle_installation_repositories(
         for repo_id in new_repos:
             _enqueue_index_repo(repo_id)
             _enqueue_backfill_open_issues(repo_id)
+            _enqueue_refresh_codeowners(repo_id)
         return
     elif action == "removed":
         removed_ids = [r.get("id") for r in (payload.get("repositories_removed") or []) if r.get("id")]
@@ -354,6 +357,12 @@ async def _handle_push(session: AsyncSession, payload: dict[str, Any]) -> None:
     # uncommitted rows). Indexing delta jobs also read from the DB via
     # their own sessions, so ordering matters here.
     await session.commit()
+
+    # If the push touched any of the CODEOWNERS canonical paths, refetch
+    # so the cached text + assignment step stay accurate.
+    codeowners_paths = {"CODEOWNERS", ".github/CODEOWNERS", "docs/CODEOWNERS"}
+    if codeowners_paths & (added | modified | removed):
+        _enqueue_refresh_codeowners(repo.id)
 
     if not (added or modified or removed):
         return

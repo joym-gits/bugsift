@@ -92,6 +92,15 @@ class Repo(Base):
     embedding_model: Mapped[str | None] = mapped_column(String(128), nullable=True)
     embedding_dim: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
+    # Cached ``CODEOWNERS`` file contents, refreshed via the
+    # :mod:`bugsift.workers.codeowners` job. Kept on the repo row so
+    # the hot path of triage doesn't hit GitHub on every card —
+    # CODEOWNERS changes infrequently and the list is often large.
+    codeowners_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    codeowners_fetched_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     installation: Mapped[Installation] = relationship(back_populates="repos")
     config: Mapped[RepoConfig | None] = relationship(back_populates="repo", uselist=False, cascade="all, delete-orphan")
 
@@ -159,6 +168,13 @@ class TriageCard(Base):
     reproduction_verdict: Mapped[str | None] = mapped_column(String(32), nullable=True)
     reproduction_log: Mapped[str | None] = mapped_column(Text, nullable=True)
     suspected_files_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    # GitHub logins suggested as assignees based on CODEOWNERS +
+    # suspected_files. List of strings, most-specific first. Teams
+    # (``@org/team``) are deliberately filtered out — GitHub's assignee
+    # API doesn't accept them.
+    suggested_assignees_json: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB, nullable=True
+    )
     # Recent pushes that touched any of ``suspected_files_json`` and
     # landed before this card's ``created_at`` — the regression
     # correlator's output.

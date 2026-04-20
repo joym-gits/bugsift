@@ -24,6 +24,7 @@ import {
   type Repo,
   useAppDetails,
   useBackfillRepo,
+  useRefreshCodeowners,
   useDeleteApp,
   useHydrateRepos,
   useInstallations,
@@ -354,6 +355,7 @@ function InstallationsSection({
 function ReposSection({ signedIn }: { signedIn: boolean }) {
   const repos = useRepos(signedIn);
   const backfill = useBackfillRepo();
+  const refreshCodeowners = useRefreshCodeowners();
   const [status, setStatus] = useState<{
     repoId: number;
     kind: "ok" | "err";
@@ -439,6 +441,39 @@ function ReposSection({ signedIn }: { signedIn: boolean }) {
                 {backfill.isPending && backfill.variables === repo.id
                   ? "queueing…"
                   : "Triage existing issues"}
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  setStatus(null);
+                  try {
+                    await refreshCodeowners.mutateAsync(repo.id);
+                    setStatus({
+                      repoId: repo.id,
+                      kind: "ok",
+                      message:
+                        "CODEOWNERS refresh queued. New cards will suggest assignees as soon as the fetch completes.",
+                    });
+                  } catch (e) {
+                    setStatus({
+                      repoId: repo.id,
+                      kind: "err",
+                      message:
+                        e instanceof ApiError
+                          ? e.message
+                          : e instanceof Error
+                            ? e.message
+                            : "refresh failed",
+                    });
+                  }
+                }}
+                disabled={refreshCodeowners.isPending}
+                className="shrink-0 inline-flex h-8 items-center gap-1.5 rounded-md border border-input bg-background px-3 text-xs font-medium hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
+              >
+                {refreshCodeowners.isPending &&
+                refreshCodeowners.variables === repo.id
+                  ? "refreshing…"
+                  : "Refresh CODEOWNERS"}
               </button>
             </li>
           ))}

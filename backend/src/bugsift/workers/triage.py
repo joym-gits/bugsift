@@ -213,6 +213,7 @@ def _write_card(
         reproduction_verdict=state.reproduction_verdict,
         reproduction_log=state.reproduction_log,
         suspected_files_json=[f.__dict__ for f in state.suspected_files] or None,
+        suggested_assignees_json=list(state.suggested_assignees) or None,
         regression_suspects_json=[s.__dict__ for s in state.regression_suspects] or None,
         draft_comment=state.draft_comment,
         proposed_labels_json=state.proposed_labels or None,

@@ -318,6 +318,113 @@ async def test_approve_feedback_card_errors_on_missing_reports(
 
 
 @pytest.mark.asyncio
+async def test_approve_respects_assignees_override(
+    client, feedback_card, monkeypatch: pytest.MonkeyPatch, session
+):
+    """The operator unchecks everyone-but-alice in the UI; only alice
+    should reach GitHub's create_issue."""
+    card, repo, app = feedback_card
+    # Seed CODEOWNERS suggestions on the card so override has something
+    # to narrow against.
+    card.suggested_assignees_json = ["alice", "bob", "carol"]
+    await session.commit()
+
+    fake = AsyncMock()
+    fake.create_issue = AsyncMock(
+        return_value={"number": 4242, "html_url": "https://..."}
+    )
+
+    def factory(installation_id: int, **kwargs):
+        return fake
+
+    async def _fake_cfg(_session):
+        return SimpleNamespace(app_id="app-1", private_key_pem="pem")
+
+    monkeypatch.setattr(cards_route.app_config, "load_app_config", _fake_cfg)
+
+    client.app.dependency_overrides[get_github_client_factory] = lambda: factory
+    try:
+        r = client.post(
+            f"/cards/{card.id}/approve", json={"assignees": ["alice"]}
+        )
+    finally:
+        client.app.dependency_overrides.pop(get_github_client_factory, None)
+
+    assert r.status_code == 200, r.text
+    call = fake.create_issue.await_args
+    assert call.kwargs["assignees"] == ["alice"]
+
+
+@pytest.mark.asyncio
+async def test_approve_empty_assignees_sends_no_assignees(
+    client, feedback_card, monkeypatch: pytest.MonkeyPatch, session
+):
+    """Operator unchecks everyone → empty list → GitHub gets assignees=None."""
+    card, repo, app = feedback_card
+    card.suggested_assignees_json = ["alice", "bob"]
+    await session.commit()
+
+    fake = AsyncMock()
+    fake.create_issue = AsyncMock(
+        return_value={"number": 42, "html_url": "https://..."}
+    )
+
+    async def _fake_cfg(_session):
+        return SimpleNamespace(app_id="app-1", private_key_pem="pem")
+
+    monkeypatch.setattr(cards_route.app_config, "load_app_config", _fake_cfg)
+    client.app.dependency_overrides[get_github_client_factory] = (
+        lambda: (lambda installation_id, **kw: fake)
+    )
+    try:
+        r = client.post(
+            f"/cards/{card.id}/approve", json={"assignees": []}
+        )
+    finally:
+        client.app.dependency_overrides.pop(get_github_client_factory, None)
+
+    assert r.status_code == 200
+    call = fake.create_issue.await_args
+    # GithubClient.create_issue is called with assignees=None when the
+    # list is empty, which omits the field from the POST body.
+    assert call.kwargs["assignees"] is None
+
+
+@pytest.mark.asyncio
+async def test_approve_drops_assignees_not_in_suggested_list(
+    client, feedback_card, monkeypatch: pytest.MonkeyPatch, session
+):
+    """Client can't smuggle arbitrary GitHub logins through the
+    override — server filters against suggested_assignees_json."""
+    card, repo, app = feedback_card
+    card.suggested_assignees_json = ["alice"]
+    await session.commit()
+
+    fake = AsyncMock()
+    fake.create_issue = AsyncMock(
+        return_value={"number": 42, "html_url": "https://..."}
+    )
+
+    async def _fake_cfg(_session):
+        return SimpleNamespace(app_id="app-1", private_key_pem="pem")
+
+    monkeypatch.setattr(cards_route.app_config, "load_app_config", _fake_cfg)
+    client.app.dependency_overrides[get_github_client_factory] = (
+        lambda: (lambda installation_id, **kw: fake)
+    )
+    try:
+        r = client.post(
+            f"/cards/{card.id}/approve",
+            json={"assignees": ["alice", "evil_hacker"]},
+        )
+    finally:
+        client.app.dependency_overrides.pop(get_github_client_factory, None)
+
+    assert r.status_code == 200
+    assert fake.create_issue.await_args.kwargs["assignees"] == ["alice"]
+
+
+@pytest.mark.asyncio
 async def test_github_sourced_approve_still_works(
     client, session, logged_in: User, monkeypatch: pytest.MonkeyPatch
 ) -> None:

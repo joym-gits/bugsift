@@ -96,6 +96,7 @@ async def hydrate_repos(
     for repo_id in newly_added_repo_ids:
         enqueue_jobs.enqueue_index_repo(repo_id)
         enqueue_jobs.enqueue_backfill_open_issues(repo_id)
+        enqueue_jobs.enqueue_refresh_codeowners(repo_id)
     logger.info(
         "hydrate: user_id=%s installations=%s added=%s",
         user.id,
@@ -199,6 +200,38 @@ async def list_repo_branches(
 class BackfillResponse(BaseModel):
     repo_id: int
     queued: bool
+
+
+class CodeownersRefreshResponse(BaseModel):
+    repo_id: int
+    queued: bool
+
+
+@router.post(
+    "/{repo_id}/refresh-codeowners", response_model=CodeownersRefreshResponse
+)
+async def refresh_codeowners_endpoint(
+    repo_id: int,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> CodeownersRefreshResponse:
+    """Re-pull the repo's CODEOWNERS file into the cache on demand.
+
+    Called by the "Refresh CODEOWNERS" button in the dashboard when
+    the operator knows the file changed and doesn't want to wait for
+    the next push webhook.
+    """
+    stmt = (
+        select(Repo)
+        .join(Installation, Repo.installation_id == Installation.id)
+        .where(Repo.id == repo_id, Installation.user_id == user.id)
+    )
+    repo = (await session.execute(stmt)).scalar_one_or_none()
+    if repo is None:
+        raise HTTPException(status_code=404, detail="repo not found")
+    enqueue_jobs.enqueue_refresh_codeowners(repo.id)
+    logger.info("codeowners refresh queued repo_id=%s user_id=%s", repo.id, user.id)
+    return CodeownersRefreshResponse(repo_id=repo.id, queued=True)
 
 
 @router.post("/{repo_id}/backfill", response_model=BackfillResponse)

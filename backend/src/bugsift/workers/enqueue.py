@@ -14,6 +14,7 @@ from rq import Queue
 from bugsift.config import get_settings
 from bugsift.workers import analyze as analyze_jobs
 from bugsift.workers import backfill as backfill_jobs
+from bugsift.workers import codeowners as codeowners_jobs
 from bugsift.workers import feedback_triage as feedback_triage_jobs
 from bugsift.workers import indexing as indexing_jobs
 from bugsift.workers import slack as slack_jobs
@@ -68,6 +69,12 @@ def enqueue_analyze_feedback_app(feedback_app_id: int) -> None:
     _queue("indexing").enqueue(
         analyze_jobs.analyze_for_app, feedback_app_id, job_timeout=1800
     )
+
+
+def enqueue_refresh_codeowners(repo_id: int) -> None:
+    """Fetch + cache CODEOWNERS on the repo row. Cheap; run after
+    install / hydrate / push to the default branch."""
+    _queue("indexing").enqueue(codeowners_jobs.refresh_codeowners, repo_id)
 
 
 def enqueue_slack_notification(card_id: int, event: str) -> None:

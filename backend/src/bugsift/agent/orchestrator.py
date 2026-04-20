@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bugsift.agent.severity import compute_severity
 from bugsift.agent.state import TriageState
+from bugsift.agent.steps import assignment as assignment_step
 from bugsift.agent.steps import classify as classify_step
 from bugsift.agent.steps import comment as comment_step
 from bugsift.agent.steps import dedup as dedup_step
@@ -98,6 +99,12 @@ async def run(
     # recent push actually caused the bug.
     if session is not None and state.suspected_files:
         state = await regression_step.run(state, session=session)
+
+    # CODEOWNERS-based assignment: deterministic, no LLM. Uses cached
+    # codeowners_text on the repo row; a fresh install with no cache
+    # yet silently yields no assignees, same severity.
+    if session is not None and state.suspected_files:
+        state = await assignment_step.run(state, session=session)
 
     # Severity: deterministic from classification + repro + regression
     # + user-report count. Computed last so every signal is present.

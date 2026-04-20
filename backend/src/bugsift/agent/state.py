@@ -92,6 +92,9 @@ class TriageState:
     rationale: str | None = None
     duplicates: list[DuplicateCandidate] = field(default_factory=list)
     suspected_files: list[SuspectedFile] = field(default_factory=list)
+    # CODEOWNERS-derived GitHub logins, most-specific first, teams
+    # filtered out. Populated by :mod:`bugsift.agent.steps.assignment`.
+    suggested_assignees: list[str] = field(default_factory=list)
     regression_suspects: list[RegressionSuspectRecord] = field(default_factory=list)
     reproduction_verdict: str | None = None
     reproduction_log: str | None = None

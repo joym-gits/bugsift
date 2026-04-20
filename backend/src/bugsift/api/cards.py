@@ -85,6 +85,7 @@ class CardResponse(BaseModel):
     proposed_action: str | None = None
     proposed_labels: list[str] | None = None
     suspected_files: list[SuspectedFileOut] | None = None
+    suggested_assignees: list[str] | None = None
     duplicates: list[DuplicateOut] | None = None
     regression_suspects: list[RegressionSuspectOut] | None = None
     reproduction_verdict: str | None = None
@@ -99,12 +100,18 @@ class EditBody(BaseModel):
 
 
 class ApproveBody(BaseModel):
-    """Optional body on approve. Only ``admin_note`` is read today (for
-    feedback-sourced cards it gets rendered into the new GitHub issue);
-    new fields can be added without breaking clients that POST an empty
-    body."""
+    """Optional body on approve.
+
+    - ``admin_note`` (feedback cards only) is rendered into the new
+      tracker issue's body.
+    - ``assignees`` overrides the card's ``suggested_assignees_json``.
+      ``None`` means "use the card's suggestions as-is"; an empty list
+      means "don't assign anybody". This lets the dashboard checkbox
+      UI explicitly narrow or clear the assignee set before approving.
+    """
 
     admin_note: str | None = Field(default=None, max_length=8000)
+    assignees: list[str] | None = Field(default=None, max_length=10)
 
 
 @router.get("", response_model=list[CardResponse])
@@ -293,6 +300,7 @@ async def approve_card(
         private_key_pem=cfg.private_key_pem,
     )
 
+    assignees_override = body.assignees if body is not None else None
     if card.source == "feedback":
         await _approve_feedback_card(
             session=session,
@@ -301,9 +309,12 @@ async def approve_card(
             user=user,
             client=client,
             admin_note=(body.admin_note if body else None),
+            assignees_override=assignees_override,
         )
     else:
-        await _approve_github_card(card=card, repo=repo, client=client)
+        await _approve_github_card(
+            card=card, repo=repo, client=client, assignees_override=assignees_override
+        )
         card.final_comment = card.draft_comment
         # Populate generic ticket_* columns for existing github cards
         # so the UI can link out uniformly regardless of destination.
@@ -329,9 +340,18 @@ async def approve_card(
     return _card_response(card, repo.full_name, repo.default_branch)
 
 
-async def _approve_github_card(*, card: TriageCard, repo: Repo, client) -> None:
+async def _approve_github_card(
+    *,
+    card: TriageCard,
+    repo: Repo,
+    client,
+    assignees_override: list[str] | None = None,
+) -> None:
     """Classic flow: comment on the existing GitHub issue, optionally
-    apply labels, optionally close."""
+    apply labels, optionally close. Also applies any CODEOWNERS-
+    suggested assignees the triage pipeline picked — best-effort, so
+    GitHub silently dropping non-member logins doesn't block the
+    comment."""
     if not card.draft_comment:
         raise HTTPException(status_code=400, detail="card has no draft comment to post")
     try:
@@ -339,6 +359,17 @@ async def _approve_github_card(*, card: TriageCard, repo: Repo, client) -> None:
     except Exception as e:
         logger.exception("failed to post comment card_id=%s", card.id)
         raise HTTPException(status_code=502, detail=f"failed to post comment: {e}") from e
+
+    assignees = _resolve_assignees(card, assignees_override)
+    if assignees:
+        try:
+            await client.add_assignees(
+                repo.full_name, card.issue_number, assignees
+            )
+        except Exception:
+            logger.warning(
+                "assignees apply failed card_id=%s; continuing", card.id
+            )
 
     labels = card.proposed_labels_json or []
     if card.proposed_action == "comment_and_label" and labels:
@@ -362,6 +393,7 @@ async def _approve_feedback_card(
     user: User,
     client,
     admin_note: str | None = None,
+    assignees_override: list[str] | None = None,
 ) -> None:
     """Open a tracker issue for a widget-sourced feedback card.
 
@@ -417,9 +449,14 @@ async def _approve_feedback_card(
         return
 
     # Default: GitHub Issues in the app's default repo (existing flow).
+    assignees = _resolve_assignees(card, assignees_override)
     try:
         created = await client.create_issue(
-            repo.full_name, title=title, body=body, labels=labels or None
+            repo.full_name,
+            title=title,
+            body=body,
+            labels=labels or None,
+            assignees=assignees or None,
         )
     except Exception as e:
         logger.exception("failed to create GitHub issue card_id=%s", card.id)
@@ -533,6 +570,43 @@ async def _load_feedback_reports_for_card(
     return list(rows)
 
 
+def _assignees_from_card(card: TriageCard) -> list[str]:
+    raw = card.suggested_assignees_json
+    if not isinstance(raw, list):
+        return []
+    return [str(x).strip() for x in raw if isinstance(x, str) and x.strip()]
+
+
+def _resolve_assignees(
+    card: TriageCard, override: list[str] | None
+) -> list[str]:
+    """Pick the assignee list to apply on approve.
+
+    ``override is None`` → use the card's suggestions as-is. ``override == []``
+    → explicitly assign nobody (operator unchecked all of them). Any
+    non-empty list is filtered against the card's suggested list so a
+    request can't smuggle arbitrary GitHub logins through."""
+    if override is None:
+        return _assignees_from_card(card)
+    suggested = set(_assignees_from_card(card))
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for raw in override:
+        if not isinstance(raw, str):
+            continue
+        login = raw.strip().lstrip("@")
+        if not login or login in seen:
+            continue
+        if login not in suggested:
+            # Silently drop logins the CODEOWNERS matcher didn't produce —
+            # we don't want this endpoint to become a general "assign this
+            # user" knob that bypasses the server-side check.
+            continue
+        seen.add(login)
+        cleaned.append(login)
+    return cleaned
+
+
 def _card_response(
     card: TriageCard, repo_full_name: str, repo_default_branch: str | None = None
 ) -> CardResponse:
@@ -609,6 +683,7 @@ def _card_response(
         proposed_action=card.proposed_action,
         proposed_labels=card.proposed_labels_json,
         suspected_files=suspected,
+        suggested_assignees=(_assignees_from_card(card) or None),
         duplicates=duplicates,
         regression_suspects=regression_suspects,
         reproduction_verdict=card.reproduction_verdict,
