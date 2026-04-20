@@ -38,6 +38,7 @@ from bugsift.db.models import (
     Repo,
     RepoAnalysis,
     RepoAnalysisChatMessage,
+    TicketDestination,
     User,
 )
 from bugsift.github.rate_limit import _client as _redis_client
@@ -164,6 +165,7 @@ class CreateAppBody(BaseModel):
     default_repo_id: int | None = None
     allowed_origins: list[str] | None = Field(default=None, max_length=20)
     target_branch: str | None = Field(default=None, max_length=255)
+    ticket_destination_id: int | None = None
 
 
 class UpdateAppBody(BaseModel):
@@ -171,6 +173,10 @@ class UpdateAppBody(BaseModel):
     default_repo_id: int | None = None
     allowed_origins: list[str] | None = Field(default=None, max_length=20)
     target_branch: str | None = Field(default=None, max_length=255)
+    # Use -1 as "explicit unset" since None in a PATCH means "don't
+    # touch"; allowing the user to clear the destination requires a
+    # sentinel.
+    ticket_destination_id: int | None = None
 
 
 class FeedbackAppOut(BaseModel):
@@ -181,6 +187,9 @@ class FeedbackAppOut(BaseModel):
     default_repo_full_name: str | None
     default_repo_branch: str | None
     target_branch: str | None
+    ticket_destination_id: int | None
+    ticket_destination_name: str | None
+    ticket_destination_provider: str | None
     allowed_origins: list[str] | None
     created_at: datetime
     report_count: int
@@ -201,6 +210,12 @@ async def create_feedback_app(
             )
 
     cleaned_origins = _clean_origins(body.allowed_origins) if body.allowed_origins else None
+    if body.ticket_destination_id is not None:
+        if not await _owns_ticket_destination(session, user.id, body.ticket_destination_id):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="ticket_destination_id is not a destination you own",
+            )
     row = FeedbackApp(
         user_id=user.id,
         name=body.name.strip(),
@@ -208,6 +223,7 @@ async def create_feedback_app(
         allowed_origins_json=cleaned_origins,
         default_repo_id=body.default_repo_id,
         target_branch=(body.target_branch or "").strip() or None,
+        ticket_destination_id=body.ticket_destination_id,
     )
     session.add(row)
     await session.commit()
@@ -241,6 +257,19 @@ async def update_feedback_app(
     if body.target_branch is not None:
         branch = body.target_branch.strip()
         row.target_branch = branch or None
+    if body.ticket_destination_id is not None:
+        if body.ticket_destination_id == 0:
+            # Sentinel: clear the destination (fall back to GitHub).
+            row.ticket_destination_id = None
+        else:
+            if not await _owns_ticket_destination(
+                session, user.id, body.ticket_destination_id
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="ticket_destination_id is not a destination you own",
+                )
+            row.ticket_destination_id = body.ticket_destination_id
     await session.commit()
     await session.refresh(row)
     return await _serialize(session, row)
@@ -838,6 +867,20 @@ def _clean_origins(origins: list[str]) -> list[str]:
     return out
 
 
+async def _owns_ticket_destination(
+    session: AsyncSession, user_id: int, destination_id: int
+) -> bool:
+    row = (
+        await session.execute(
+            select(TicketDestination.id).where(
+                TicketDestination.id == destination_id,
+                TicketDestination.user_id == user_id,
+            )
+        )
+    ).first()
+    return row is not None
+
+
 async def _owns_repo(session: AsyncSession, user_id: int, repo_id: int) -> bool:
     row = (
         await session.execute(
@@ -857,6 +900,13 @@ async def _serialize(session: AsyncSession, app: FeedbackApp) -> FeedbackAppOut:
         if repo is not None:
             repo_full_name = repo.full_name
             repo_branch = repo.default_branch
+    dest_name: str | None = None
+    dest_provider: str | None = None
+    if app.ticket_destination_id is not None:
+        dest = await session.get(TicketDestination, app.ticket_destination_id)
+        if dest is not None:
+            dest_name = dest.name
+            dest_provider = dest.provider
     # Tiny count query; fine at this scale. If feedback_reports grows huge,
     # materialise a counter column on feedback_apps.
     from sqlalchemy import func as _f
@@ -874,6 +924,9 @@ async def _serialize(session: AsyncSession, app: FeedbackApp) -> FeedbackAppOut:
         default_repo_full_name=repo_full_name,
         default_repo_branch=repo_branch,
         target_branch=app.target_branch,
+        ticket_destination_id=app.ticket_destination_id,
+        ticket_destination_name=dest_name,
+        ticket_destination_provider=dest_provider,
         allowed_origins=app.allowed_origins_json,
         created_at=app.created_at,
         report_count=int(count),

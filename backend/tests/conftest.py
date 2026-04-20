@@ -25,6 +25,7 @@ from bugsift.db.models import (
     RepoAnalysis,
     RepoAnalysisChatMessage,
     RepoConfig,
+    TicketDestination,
     TriageCard,
     User,
     UserApiKey,
@@ -85,6 +86,7 @@ async def db_engine() -> AsyncIterator:
                 RepoAnalysisChatMessage.__table__,
                 PushEvent.__table__,
                 SlackDestination.__table__,
+                TicketDestination.__table__,
             ],
         )
     yield engine

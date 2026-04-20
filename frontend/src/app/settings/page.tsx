@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Hash, KeyRound, Trash2, Wallet } from "lucide-react";
+import { Hash, KeyRound, Ticket, Trash2, Wallet } from "lucide-react";
 
 import { AppShell, EmptyState, PageHeader, Skeleton } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
@@ -13,16 +13,20 @@ import {
   type SlackDestination,
   type SlackEvents,
   type TestKeyResult,
+  type TicketDestination,
   useCreateKey,
   useCreateSlackDestination,
+  useCreateTicketDestination,
   useDeleteKey,
   useDeleteSlackDestination,
+  useDeleteTicketDestination,
   useKeys,
   useMe,
   useMonthlyUsage,
   useSlackDestinations,
   useTestKey,
   useTestSlackDestination,
+  useTicketDestinations,
   useUpdateSlackDestination,
 } from "@/lib/hooks";
 
@@ -189,9 +193,223 @@ export default function SettingsPage() {
           </section>
 
           <SlackSection signedIn={signedIn} />
+          <TicketSection signedIn={signedIn} />
         </>
       )}
     </AppShell>
+  );
+}
+
+function TicketSection({ signedIn }: { signedIn: boolean }) {
+  const destinations = useTicketDestinations(signedIn);
+  const create = useCreateTicketDestination();
+  const del = useDeleteTicketDestination();
+  const [name, setName] = useState("");
+  const [siteUrl, setSiteUrl] = useState("");
+  const [email, setEmail] = useState("");
+  const [token, setToken] = useState("");
+  const [projectKey, setProjectKey] = useState("");
+  const [issueType, setIssueType] = useState("Bug");
+  const [err, setErr] = useState<string | null>(null);
+
+  return (
+    <section className="mt-6 rounded-lg border bg-card p-6 shadow-sm">
+      <div className="mb-1 flex items-center gap-2">
+        <Ticket className="h-4 w-4 text-muted-foreground" />
+        <h2 className="text-base font-medium">Ticket destinations</h2>
+      </div>
+      <p className="text-sm text-muted-foreground">
+        When you approve a feedback card, bugsift can file a ticket in your
+        team&apos;s tracker instead of opening a GitHub issue. Jira today;
+        Linear coming next. Customer brings their own{" "}
+        <a
+          href="https://id.atlassian.com/manage-profile/security/api-tokens"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline underline-offset-4"
+        >
+          Jira API token
+        </a>
+        ; we call their Jira Cloud instance on approve and stamp the card
+        with the resulting issue key.
+      </p>
+
+      <form
+        className="mt-5 grid gap-4 sm:grid-cols-2"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setErr(null);
+          if (
+            !name.trim() ||
+            !siteUrl.trim() ||
+            !email.trim() ||
+            !token.trim() ||
+            !projectKey.trim()
+          ) {
+            setErr("all fields except issue type are required");
+            return;
+          }
+          try {
+            await create.mutateAsync({
+              provider: "jira",
+              name: name.trim(),
+              auth_token: token.trim(),
+              jira: {
+                site_url: siteUrl.trim(),
+                user_email: email.trim(),
+                default_project_key: projectKey.trim().toUpperCase(),
+                default_issue_type: issueType.trim() || "Bug",
+              },
+            });
+            setName("");
+            setSiteUrl("");
+            setEmail("");
+            setToken("");
+            setProjectKey("");
+            setIssueType("Bug");
+          } catch (err2) {
+            if (err2 instanceof ApiError) setErr(err2.message);
+            else if (err2 instanceof Error) setErr(err2.message);
+            else setErr("failed to save destination");
+          }
+        }}
+      >
+        <div className="space-y-1">
+          <Label htmlFor="jira-name">Name</Label>
+          <Input
+            id="jira-name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="acme-prod"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="jira-site">Site URL</Label>
+          <Input
+            id="jira-site"
+            value={siteUrl}
+            onChange={(e) => setSiteUrl(e.target.value)}
+            placeholder="https://acme.atlassian.net"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="jira-email">User email</Label>
+          <Input
+            id="jira-email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="alice@acme.com"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="jira-token">API token</Label>
+          <Input
+            id="jira-token"
+            type="password"
+            autoComplete="off"
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="jira-project">Project key</Label>
+          <Input
+            id="jira-project"
+            value={projectKey}
+            onChange={(e) => setProjectKey(e.target.value)}
+            placeholder="API"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="jira-issue-type">Issue type</Label>
+          <Input
+            id="jira-issue-type"
+            value={issueType}
+            onChange={(e) => setIssueType(e.target.value)}
+            placeholder="Bug"
+          />
+        </div>
+        <div className="sm:col-span-2 flex items-center gap-3">
+          <Button type="submit" disabled={create.isPending}>
+            {create.isPending ? "saving…" : "Add Jira destination"}
+          </Button>
+          {err && (
+            <span className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-1.5 text-xs text-destructive">
+              {err}
+            </span>
+          )}
+        </div>
+      </form>
+
+      <div className="mt-6">
+        <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Connected destinations
+        </h3>
+        {destinations.isLoading ? (
+          <Skeleton className="mt-3 h-16 w-full" />
+        ) : (destinations.data ?? []).length === 0 ? (
+          <p className="mt-3 text-sm text-muted-foreground">
+            No destinations configured. Approved feedback goes to GitHub Issues
+            by default.
+          </p>
+        ) : (
+          <ul className="mt-3 divide-y">
+            {(destinations.data ?? []).map((d) => (
+              <TicketDestinationRow
+                key={d.id}
+                destination={d}
+                onDelete={(id) => del.mutate(id)}
+              />
+            ))}
+          </ul>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function TicketDestinationRow({
+  destination,
+  onDelete,
+}: {
+  destination: TicketDestination;
+  onDelete: (id: number) => void;
+}) {
+  return (
+    <li className="flex items-center justify-between py-3">
+      <div>
+        <div className="font-medium">
+          {destination.name}{" "}
+          <span className="text-xs font-normal text-muted-foreground">
+            · {destination.provider}
+          </span>
+        </div>
+        <div className="text-xs text-muted-foreground">
+          {destination.site_url} · project{" "}
+          <code>{destination.default_project_key}</code> · type{" "}
+          <code>{destination.default_issue_type}</code>
+        </div>
+        <div className="mt-0.5 font-mono text-xs text-muted-foreground">
+          {destination.user_email} · {destination.token_hint}
+        </div>
+      </div>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => {
+          if (
+            confirm(
+              `Remove Jira destination "${destination.name}"? Feedback apps pointing at this will fall back to GitHub Issues.`,
+            )
+          ) {
+            onDelete(destination.id);
+          }
+        }}
+      >
+        <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+        Remove
+      </Button>
+    </li>
   );
 }
 

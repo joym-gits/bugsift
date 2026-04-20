@@ -17,6 +17,7 @@ import {
   useMe,
   useRepoBranches,
   useRepos,
+  useTicketDestinations,
 } from "@/lib/hooks";
 
 export default function FeedbackAppsPage() {
@@ -74,12 +75,14 @@ function CreateForm({
   const [repoId, setRepoId] = useState<string>("");
   const [branch, setBranch] = useState("");
   const [origins, setOrigins] = useState("");
+  const [ticketDestId, setTicketDestId] = useState<string>("");
   const [err, setErr] = useState<string | null>(null);
 
   const selectedRepoNumId = repoId ? Number(repoId) : null;
   const branches = useRepoBranches(selectedRepoNumId, selectedRepoNumId !== null);
   const branchList = branches.data ?? [];
   const selectedRepo = repos.find((r) => r.id === selectedRepoNumId);
+  const ticketDests = useTicketDestinations(true);
 
   return (
     <section className="rounded-lg border bg-card p-6 shadow-sm">
@@ -103,6 +106,7 @@ function CreateForm({
               name: name.trim(),
               default_repo_id: repoId ? Number(repoId) : null,
               target_branch: branch.trim() || null,
+              ticket_destination_id: ticketDestId ? Number(ticketDestId) : null,
               allowed_origins: origins
                 .split(/[\s,]+/)
                 .map((s) => s.trim())
@@ -112,6 +116,7 @@ function CreateForm({
             setRepoId("");
             setBranch("");
             setOrigins("");
+            setTicketDestId("");
           } catch (e) {
             if (e instanceof ApiError) setErr(e.message);
             else if (e instanceof Error) setErr(e.message);
@@ -183,6 +188,30 @@ function CreateForm({
           </select>
         </div>
         <div className="sm:col-span-2 space-y-1">
+          <Label htmlFor="ticket-dest">Approved feedback goes to (optional)</Label>
+          <select
+            id="ticket-dest"
+            value={ticketDestId}
+            onChange={(e) => setTicketDestId(e.target.value)}
+            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+          >
+            <option value="">GitHub Issues in the default repo (default)</option>
+            {(ticketDests.data ?? []).map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.provider}: {d.name} ({d.default_project_key})
+              </option>
+            ))}
+          </select>
+          <p className="text-xs text-muted-foreground">
+            Manage ticket destinations on{" "}
+            <Link href="/settings" className="underline underline-offset-4">
+              Settings
+            </Link>
+            .
+          </p>
+        </div>
+
+        <div className="sm:col-span-2 space-y-1">
           <Label htmlFor="origins">Allowed origins (optional, space or comma separated)</Label>
           <Input
             id="origins"
@@ -220,9 +249,17 @@ function AppCard({ app }: { app: FeedbackApp }) {
         <div className="min-w-0">
           <div className="truncate text-base font-medium">{app.name}</div>
           <div className="mt-1 text-xs text-muted-foreground">
-            {app.default_repo_full_name ? (
+            {app.ticket_destination_id && app.ticket_destination_name ? (
               <>
-                approved feedback → <span className="font-mono">{app.default_repo_full_name}</span>
+                approved feedback →{" "}
+                <span className="font-mono">
+                  {app.ticket_destination_provider}: {app.ticket_destination_name}
+                </span>
+              </>
+            ) : app.default_repo_full_name ? (
+              <>
+                approved feedback →{" "}
+                <span className="font-mono">{app.default_repo_full_name}</span>
                 {" @ "}
                 <span className="font-mono">
                   {app.target_branch ?? app.default_repo_branch ?? "main"}

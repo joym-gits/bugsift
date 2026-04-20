@@ -19,6 +19,7 @@ from bugsift.api.llm import router as llm_router
 from bugsift.api.manifest import router as manifest_router
 from bugsift.api.repos import router as repos_router
 from bugsift.api.slack import router as slack_router
+from bugsift.api.tickets import router as tickets_router
 from bugsift.api.usage import router as usage_router
 from bugsift.api.webhooks import router as webhooks_router
 from bugsift.api.widget import router as widget_router
@@ -126,6 +127,7 @@ def create_app() -> FastAPI:
     app.include_router(feedback_router)
     app.include_router(widget_router)
     app.include_router(slack_router)
+    app.include_router(tickets_router)
 
     return app
 

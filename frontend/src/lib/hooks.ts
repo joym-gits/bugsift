@@ -90,6 +90,9 @@ export type Card = {
   source?: "github" | "feedback";
   github_issue_number?: number | null;
   github_issue_url?: string | null;
+  ticket_provider?: "github" | "jira" | "linear" | null;
+  ticket_key?: string | null;
+  ticket_url?: string | null;
   feedback_report_count?: number;
   status: string;
   classification: string | null;
@@ -201,6 +204,59 @@ export function useRepos(enabled: boolean) {
     queryKey: ["repos"],
     queryFn: () => apiFetch<Repo[]>("/repos"),
     enabled,
+  });
+}
+
+export type TicketDestination = {
+  id: number;
+  provider: "jira";
+  name: string;
+  site_url: string | null;
+  user_email: string | null;
+  default_project_key: string | null;
+  default_issue_type: string | null;
+  token_hint: string;
+  created_at: string;
+};
+
+export function useTicketDestinations(enabled: boolean) {
+  return useQuery<TicketDestination[]>({
+    queryKey: ["ticket-destinations"],
+    queryFn: () => apiFetch<TicketDestination[]>("/tickets/destinations"),
+    enabled,
+  });
+}
+
+export function useCreateTicketDestination() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: {
+      provider: "jira";
+      name: string;
+      auth_token: string;
+      jira: {
+        site_url: string;
+        user_email: string;
+        default_project_key: string;
+        default_issue_type?: string;
+      };
+    }) =>
+      apiFetch<TicketDestination>("/tickets/destinations", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["ticket-destinations"] }),
+  });
+}
+
+export function useDeleteTicketDestination() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) =>
+      apiFetch<void>(`/tickets/destinations/${id}`, { method: "DELETE" }),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["ticket-destinations"] }),
   });
 }
 
@@ -425,6 +481,9 @@ export type FeedbackApp = {
   default_repo_full_name: string | null;
   default_repo_branch: string | null;
   target_branch: string | null;
+  ticket_destination_id: number | null;
+  ticket_destination_name: string | null;
+  ticket_destination_provider: string | null;
   allowed_origins: string[] | null;
   created_at: string;
   report_count: number;
@@ -458,6 +517,7 @@ export function useCreateFeedbackApp() {
       default_repo_id?: number | null;
       allowed_origins?: string[] | null;
       target_branch?: string | null;
+      ticket_destination_id?: number | null;
     }) =>
       apiFetch<FeedbackApp>("/feedback/apps", {
         method: "POST",
@@ -477,6 +537,8 @@ export function useUpdateFeedbackApp() {
         default_repo_id: number | null;
         allowed_origins: string[] | null;
         target_branch: string | null;
+        // 0 = sentinel for "clear the destination back to GitHub default".
+        ticket_destination_id: number | null;
       }>;
     }) =>
       apiFetch<FeedbackApp>(`/feedback/apps/${args.id}`, {

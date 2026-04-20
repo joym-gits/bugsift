@@ -10,10 +10,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from bugsift.api.deps import get_current_user, get_session
-from bugsift.db.models import FeedbackReport, Installation, Repo, TriageCard, User
+from bugsift.db.models import (
+    FeedbackApp,
+    FeedbackReport,
+    Installation,
+    Repo,
+    TicketDestination,
+    TriageCard,
+    User,
+)
 from bugsift.feedback import issue_body as feedback_issue_body
 from bugsift.github import config as app_config
 from bugsift.github.client import GithubClient
+from bugsift.security import crypto
+from bugsift.tickets.jira import JiraApiError, JiraAuthError, JiraClient
 from bugsift.workers import enqueue as enqueue_jobs
 
 logger = logging.getLogger(__name__)
@@ -62,6 +72,9 @@ class CardResponse(BaseModel):
     source: str = "github"
     github_issue_number: int | None = None
     github_issue_url: str | None = None
+    ticket_provider: str | None = None
+    ticket_key: str | None = None
+    ticket_url: str | None = None
     feedback_report_count: int = 0
     status: str
     classification: str | None
@@ -292,6 +305,14 @@ async def approve_card(
     else:
         await _approve_github_card(card=card, repo=repo, client=client)
         card.final_comment = card.draft_comment
+        # Populate generic ticket_* columns for existing github cards
+        # so the UI can link out uniformly regardless of destination.
+        if card.issue_number is not None:
+            card.ticket_provider = "github"
+            card.ticket_key = str(card.issue_number)
+            card.ticket_url = (
+                f"https://github.com/{repo.full_name}/issues/{card.issue_number}"
+            )
 
     card.status = "posted"
     card.decided_at = datetime.now(UTC)
@@ -342,9 +363,13 @@ async def _approve_feedback_card(
     client,
     admin_note: str | None = None,
 ) -> None:
-    """Open a brand-new GitHub issue for a widget-sourced feedback card,
-    then stamp the card with the resulting issue number so the dashboard
-    can link out to it.
+    """Open a tracker issue for a widget-sourced feedback card.
+
+    Routes to the feedback app's configured ticket destination:
+    - ``None`` / destination missing → GitHub (existing behaviour), using
+      the app's default repo.
+    - Jira destination → create a Jira issue via the stored site URL +
+      token and stamp the card with ``PROJ-NNN``.
     """
     report_rows = await _load_feedback_reports_for_card(session, card)
     if not report_rows:
@@ -379,6 +404,19 @@ async def _approve_feedback_card(
     if card.proposed_labels_json and isinstance(card.proposed_labels_json, list):
         labels = [str(x) for x in card.proposed_labels_json if str(x).strip()]
 
+    destination = await _resolve_ticket_destination(session, report_rows)
+    if destination and destination.provider == "jira":
+        await _create_jira_issue_for_card(
+            card=card,
+            destination=destination,
+            title=title,
+            body=body,
+            labels=labels,
+            repo_full_name=repo.full_name,
+        )
+        return
+
+    # Default: GitHub Issues in the app's default repo (existing flow).
     try:
         created = await client.create_issue(
             repo.full_name, title=title, body=body, labels=labels or None
@@ -392,12 +430,90 @@ async def _approve_feedback_card(
     github_number = created.get("number")
     if isinstance(github_number, int):
         card.github_issue_number = github_number
+        card.ticket_provider = "github"
+        card.ticket_key = str(github_number)
+        card.ticket_url = f"https://github.com/{repo.full_name}/issues/{github_number}"
     card.final_comment = body
     logger.info(
         "feedback card_id=%s opened github issue %s#%s",
         card.id,
         repo.full_name,
         github_number,
+    )
+
+
+async def _resolve_ticket_destination(
+    session: AsyncSession, report_rows: list[FeedbackReport]
+) -> TicketDestination | None:
+    """Find the ticket destination pinned to the feedback app the first
+    report belongs to. A card should always have at least one report
+    (caller already guarded); we read the app from that anchor."""
+    if not report_rows:
+        return None
+    app = await session.get(FeedbackApp, report_rows[0].app_id)
+    if app is None or app.ticket_destination_id is None:
+        return None
+    return await session.get(TicketDestination, app.ticket_destination_id)
+
+
+async def _create_jira_issue_for_card(
+    *,
+    card: TriageCard,
+    destination: TicketDestination,
+    title: str,
+    body: str,
+    labels: list[str],
+    repo_full_name: str,
+) -> None:
+    """Call the customer's Jira instance to open an issue, then stamp
+    the card with the resulting ``PROJ-NNN`` key + browse URL."""
+    try:
+        token = crypto.decrypt(destination.auth_token_encrypted)
+    except crypto.DecryptionFailed as e:
+        raise HTTPException(
+            status_code=500,
+            detail="could not decrypt the stored Jira token",
+        ) from e
+
+    config = destination.config_json or {}
+    site_url = str(config.get("site_url") or "")
+    user_email = str(config.get("user_email") or "")
+    project_key = str(config.get("default_project_key") or "")
+    issue_type = str(config.get("default_issue_type") or "Bug")
+    if not site_url or not user_email or not project_key:
+        raise HTTPException(
+            status_code=400,
+            detail="Jira destination is missing site URL, email, or project key",
+        )
+
+    jira = JiraClient(
+        site_url=site_url, user_email=user_email, api_token=token
+    )
+    try:
+        created = await jira.create_issue(
+            project_key=project_key,
+            issue_type=issue_type,
+            summary=title,
+            description=body,
+            labels=labels or None,
+        )
+    except JiraAuthError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except JiraApiError as e:
+        logger.exception("failed to create Jira issue card_id=%s", card.id)
+        raise HTTPException(
+            status_code=502, detail=f"failed to create Jira issue: {e}"
+        ) from e
+
+    card.ticket_provider = "jira"
+    card.ticket_key = created.key
+    card.ticket_url = created.url
+    card.final_comment = body
+    logger.info(
+        "feedback card_id=%s opened jira issue %s (repo=%s)",
+        card.id,
+        created.key,
+        repo_full_name,
     )
 
 
@@ -480,6 +596,9 @@ def _card_response(
         source=card.source or "github",
         github_issue_number=card.github_issue_number,
         github_issue_url=issue_url,
+        ticket_provider=card.ticket_provider,
+        ticket_key=card.ticket_key,
+        ticket_url=card.ticket_url,
         feedback_report_count=len(feedback_ids),
         status=card.status,
         classification=card.classification,

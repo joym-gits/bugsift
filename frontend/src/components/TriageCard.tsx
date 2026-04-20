@@ -78,14 +78,16 @@ export function TriageCard({ card }: { card: Card }) {
         </time>
       </header>
 
-      {card.github_issue_url && (
+      {(card.ticket_url || card.github_issue_url) && (
         <a
-          href={card.github_issue_url}
+          href={card.ticket_url ?? card.github_issue_url ?? "#"}
           target="_blank"
           rel="noopener noreferrer"
           className="mt-2 inline-flex items-center text-xs text-primary underline underline-offset-4"
         >
-          View on GitHub ↗
+          {card.ticket_provider === "jira"
+            ? `View ${card.ticket_key ?? "ticket"} on Jira ↗`
+            : "View on GitHub ↗"}
         </a>
       )}
 
@@ -303,14 +305,21 @@ export function TriageCard({ card }: { card: Card }) {
                         });
                         if (card.source === "feedback") {
                           const url =
+                            result?.ticket_url ??
                             result?.github_issue_url ??
                             (result?.github_issue_number
                               ? `https://github.com/${card.repo_full_name}/issues/${result.github_issue_number}`
                               : null);
+                          const provider = result?.ticket_provider ?? "github";
+                          const key =
+                            result?.ticket_key ??
+                            (result?.github_issue_number
+                              ? String(result.github_issue_number)
+                              : "");
                           setActionOk(
                             url
-                              ? `Opened GitHub issue #${result.github_issue_number ?? ""}: ${url}`
-                              : "Opened GitHub issue.",
+                              ? `Opened ${provider === "jira" ? "Jira issue" : "GitHub issue"} ${key}: ${url}`
+                              : "Ticket created.",
                           );
                           setAdminNote("");
                         } else {
@@ -330,7 +339,7 @@ export function TriageCard({ card }: { card: Card }) {
                         ? "opening…"
                         : "posting…"
                       : card.source === "feedback"
-                        ? "Open GitHub issue"
+                        ? "Open ticket"
                         : "Approve"}
                   </Button>
                 )}

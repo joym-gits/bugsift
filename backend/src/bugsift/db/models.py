@@ -134,7 +134,18 @@ class TriageCard(Base):
     # collapsed into this one card (slice 3 dedup). Always at least one.
     feedback_report_ids_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     # Populated on approve: the GitHub issue number the card turned into.
+    # Kept for backward compatibility on existing rows; newer approves
+    # also populate ``ticket_provider`` / ``ticket_key`` / ``ticket_url``
+    # below so the dashboard can link out regardless of tracker.
     github_issue_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Generic cross-provider pointer to the tracker issue this card
+    # became. ``ticket_provider`` is ``github`` | ``jira`` | ``linear``
+    # (future); ``ticket_key`` is the human-readable id (``42`` for
+    # GitHub, ``PROJ-123`` for Jira, ``ENG-456`` for Linear);
+    # ``ticket_url`` is the direct link.
+    ticket_provider: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    ticket_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    ticket_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending", index=True)
     classification: Mapped[str | None] = mapped_column(String(32), nullable=True)
     # ``blocker`` | ``high`` | ``medium`` | ``low`` | ``None``. Computed
@@ -273,6 +284,12 @@ class FeedbackApp(Base):
         ForeignKey("repos.id", ondelete="SET NULL"), nullable=True
     )
     target_branch: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Which ticket tracker approved feedback lands in. ``NULL`` means
+    # "use the default repo's GitHub Issues" (backward-compat with pre-
+    # Jira behaviour).
+    ticket_destination_id: Mapped[int | None] = mapped_column(
+        ForeignKey("ticket_destinations.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -488,6 +505,44 @@ class SlackDestination(Base):
     # Flag set. Missing keys read as False. See bugsift.slack.notifier
     # for the canonical event names.
     events_json: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class TicketDestination(Base):
+    """Where approved feedback turns into a tracker ticket.
+
+    Provider-agnostic by design — v1 only supports ``jira``, but
+    ``linear`` and others slot in later. Customer brings their own
+    Jira Cloud subscription (or Jira Server); bugsift stores the API
+    token encrypted and calls their instance on approve.
+
+    ``config_json`` shape per provider:
+      - jira: ``{"site_url", "user_email", "default_project_key",
+        "default_issue_type"}`` — ``site_url`` is their Atlassian site
+        (e.g. ``https://acme.atlassian.net``), ``user_email`` is the
+        email the API token belongs to (Jira's REST uses HTTP Basic
+        auth with email:token).
+    """
+
+    __tablename__ = "ticket_destinations"
+    __table_args__ = (
+        UniqueConstraint("user_id", "name", name="uq_ticket_dest_name"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    provider: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    auth_token_encrypted: Mapped[bytes] = mapped_column(
+        LargeBinary, nullable=False
+    )
+    config_json: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, default=dict
     )
     created_at: Mapped[datetime] = mapped_column(
