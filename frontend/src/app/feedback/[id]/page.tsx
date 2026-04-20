@@ -18,13 +18,16 @@ import { ApiError } from "@/lib/api";
 import {
   type AnalysisChatMessage,
   type FeedbackApp,
+  type FeedbackDigest,
   type RepoAnalysis,
   useAddCorrection,
   useAnalysis,
   useAnalysisChats,
   useAskAnalysis,
   useClearAnalysisChats,
+  useComputeCurrentDigest,
   useFeedbackApp,
+  useFeedbackDigests,
   useKickAnalysis,
   useMe,
 } from "@/lib/hooks";
@@ -82,6 +85,8 @@ export default function FeedbackAppDetailPage() {
             title={app.data.name}
             description={summaryLine(app.data)}
           />
+
+          <TrendsSection appId={app.data.id} />
 
           <AnalysisSection
             appId={app.data.id}
@@ -602,4 +607,187 @@ function ChatTurn({ message }: { message: AnalysisChatMessage }) {
       )}
     </li>
   );
+}
+
+function TrendsSection({ appId }: { appId: number }) {
+  const digests = useFeedbackDigests(appId, true);
+  const compute = useComputeCurrentDigest();
+  const [err, setErr] = useState<string | null>(null);
+  const current: FeedbackDigest | null = digests.data?.[0] ?? null;
+
+  return (
+    <section className="mb-6 rounded-lg border bg-card p-6 shadow-sm">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-base font-medium">Trends this week</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            bugsift clusters similar feedback reports so you can see
+            what&apos;s actually blowing up, not just the newest card.
+            Refresh the digest any time — we recompute over the
+            week&apos;s embeddings.
+          </p>
+        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={async () => {
+            setErr(null);
+            try {
+              await compute.mutateAsync(appId);
+            } catch (e) {
+              setErr(
+                e instanceof ApiError
+                  ? e.message
+                  : e instanceof Error
+                    ? e.message
+                    : "failed to compute digest",
+              );
+            }
+          }}
+          disabled={compute.isPending}
+        >
+          <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+          {compute.isPending ? "computing…" : current ? "Refresh" : "Compute digest"}
+        </Button>
+      </div>
+      {err && (
+        <p className="mt-3 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-1.5 text-xs text-destructive">
+          {err}
+        </p>
+      )}
+      {digests.isLoading ? (
+        <Skeleton className="mt-5 h-24 w-full" />
+      ) : current ? (
+        <DigestBody digest={current} />
+      ) : (
+        <p className="mt-5 text-sm text-muted-foreground">
+          No digest yet. Click <em>Compute digest</em> to generate one.
+        </p>
+      )}
+    </section>
+  );
+}
+
+function DigestBody({ digest }: { digest: FeedbackDigest }) {
+  const delta = digest.report_count - digest.previous_report_count;
+  const pctLabel = _deltaLabel(digest.report_count, digest.previous_report_count);
+
+  return (
+    <div className="mt-5 space-y-5">
+      <div className="flex flex-wrap items-baseline gap-4">
+        <div>
+          <div className="text-3xl font-semibold">{digest.report_count}</div>
+          <div className="text-xs text-muted-foreground">
+            reports · {_friendlyRange(digest.period_start, digest.period_end)}
+          </div>
+        </div>
+        <div
+          className={
+            "rounded-full border px-2.5 py-1 text-xs font-medium " +
+            (delta > 0
+              ? "border-red-500/40 bg-red-500/10 text-red-700"
+              : delta < 0
+                ? "border-green-600/40 bg-green-600/10 text-green-700"
+                : "border-border bg-muted/30 text-muted-foreground")
+          }
+        >
+          {delta > 0 ? "▲" : delta < 0 ? "▼" : "·"} {Math.abs(delta)} vs last week
+          {pctLabel ? ` (${pctLabel})` : ""}
+        </div>
+      </div>
+
+      {Object.keys(digest.severity_breakdown).length > 0 && (
+        <div>
+          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Severity
+          </div>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {(
+              ["blocker", "high", "medium", "low", "none"] as const
+            ).flatMap((key) => {
+              const n = digest.severity_breakdown[key];
+              if (!n) return [];
+              const cls = {
+                blocker: "border-destructive/50 bg-destructive/10 text-destructive",
+                high: "border-red-500/40 bg-red-500/10 text-red-700",
+                medium: "border-amber-500/40 bg-amber-500/10 text-amber-700",
+                low: "border-border bg-muted/30 text-muted-foreground",
+                none: "border-border bg-muted/20 text-muted-foreground",
+              }[key];
+              return [
+                <span
+                  key={key}
+                  className={`rounded-full border px-2 py-0.5 text-xs ${cls}`}
+                >
+                  {key} · {n}
+                </span>,
+              ];
+            })}
+          </div>
+        </div>
+      )}
+
+      {digest.clusters.length > 0 && (
+        <div>
+          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Top patterns
+          </div>
+          <ul className="mt-2 space-y-2">
+            {digest.clusters.map((c, i) => (
+              <li
+                key={i}
+                className="rounded-md border bg-background p-3 text-sm"
+              >
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="font-medium">×{c.size} reports</span>
+                  {c.card_ids.length > 0 && (
+                    <span className="text-xs text-muted-foreground">
+                      {c.card_ids.length} card{c.card_ids.length === 1 ? "" : "s"}
+                    </span>
+                  )}
+                </div>
+                <p className="mt-1 leading-relaxed">{c.representative}</p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {digest.top_files.length > 0 && (
+        <div>
+          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Most-implicated files
+          </div>
+          <ul className="mt-2 space-y-1 text-xs">
+            {digest.top_files.map((f) => (
+              <li key={f.file_path}>
+                <code className="rounded border bg-muted/30 px-1.5 py-0.5">
+                  {f.file_path}
+                </code>
+                <span className="ml-2 text-muted-foreground">
+                  {f.card_count} card{f.card_count === 1 ? "" : "s"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <div className="text-[10px] text-muted-foreground">
+        last computed {new Date(digest.generated_at).toLocaleString()}
+      </div>
+    </div>
+  );
+}
+
+function _deltaLabel(current: number, previous: number): string | null {
+  if (previous === 0) return current > 0 ? "new" : null;
+  const pct = Math.round(((current - previous) / previous) * 100);
+  return `${pct >= 0 ? "+" : ""}${pct}%`;
+}
+
+function _friendlyRange(start: string, end: string): string {
+  const s = new Date(start);
+  const e = new Date(end);
+  return `${s.toLocaleDateString()} – ${e.toLocaleDateString()}`;
 }

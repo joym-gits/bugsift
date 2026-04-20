@@ -32,6 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bugsift.api.deps import get_current_user, get_session
 from bugsift.db.models import (
     FeedbackApp,
+    FeedbackDigest,
     FeedbackReport,
     Installation,
     Repo,
@@ -604,6 +605,157 @@ async def ask_analysis_chat(
             created_at=assistant_msg.created_at,
         ),
     ]
+
+
+# ---------- Weekly trends / digest ----------
+
+
+class DigestClusterOut(BaseModel):
+    size: int
+    representative: str
+    report_ids: list[int]
+    card_ids: list[int]
+
+
+class DigestTopFileOut(BaseModel):
+    file_path: str
+    card_count: int
+
+
+class DigestOut(BaseModel):
+    id: int | None = None
+    app_id: int
+    period_start: datetime
+    period_end: datetime
+    report_count: int
+    previous_report_count: int
+    clusters: list[DigestClusterOut]
+    top_files: list[DigestTopFileOut]
+    severity_breakdown: dict[str, int]
+    generated_at: datetime
+
+
+@router.post(
+    "/feedback/apps/{app_id}/digests/current", response_model=DigestOut
+)
+async def compute_current_digest(
+    app_id: int,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> DigestOut:
+    """Compute (or refresh) the digest for the current weekly window.
+
+    Upserts on ``(app_id, period_start)`` so calling this repeatedly
+    keeps one row per week; the last call wins. Runs inline — the
+    cluster pass is cheap (tens/hundreds of reports, Python cosine).
+    """
+    from bugsift.feedback.digest import compute_digest, current_weekly_window
+
+    app = await session.get(FeedbackApp, app_id)
+    if app is None or app.user_id != user.id:
+        raise HTTPException(status_code=404, detail="app not found")
+
+    period_start, period_end = current_weekly_window()
+    result = await compute_digest(
+        session, app=app, period_start=period_start, period_end=period_end
+    )
+
+    row = (
+        await session.execute(
+            select(FeedbackDigest).where(
+                FeedbackDigest.app_id == app.id,
+                FeedbackDigest.period_start == period_start,
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        row = FeedbackDigest(
+            app_id=app.id,
+            period_start=period_start,
+            period_end=period_end,
+        )
+        session.add(row)
+    row.period_end = period_end
+    row.report_count = result.report_count
+    row.previous_report_count = result.previous_report_count
+    row.clusters_json = result.clusters
+    row.top_files_json = result.top_files
+    row.severity_breakdown_json = result.severity_breakdown
+    # Generated-at auto-updates via server_default on INSERT; bump it
+    # explicitly on UPDATE so the UI reflects the recompute time.
+    from datetime import UTC as _UTC, datetime as _dt
+
+    row.generated_at = _dt.now(_UTC)
+    await session.commit()
+    await session.refresh(row)
+    logger.info(
+        "digest: app_id=%s period_start=%s reports=%d clusters=%d",
+        app_id,
+        period_start.isoformat(),
+        result.report_count,
+        len(result.clusters),
+    )
+    return _serialize_digest(row)
+
+
+@router.get("/feedback/apps/{app_id}/digests", response_model=list[DigestOut])
+async def list_digests(
+    app_id: int,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+    limit: int = 12,
+) -> list[DigestOut]:
+    """Most recent N digests (default last 12 weeks)."""
+    app = await session.get(FeedbackApp, app_id)
+    if app is None or app.user_id != user.id:
+        raise HTTPException(status_code=404, detail="app not found")
+    rows = (
+        await session.execute(
+            select(FeedbackDigest)
+            .where(FeedbackDigest.app_id == app.id)
+            .order_by(FeedbackDigest.period_start.desc())
+            .limit(limit)
+        )
+    ).scalars().all()
+    return [_serialize_digest(r) for r in rows]
+
+
+def _serialize_digest(row: FeedbackDigest) -> DigestOut:
+    clusters = row.clusters_json if isinstance(row.clusters_json, list) else []
+    top_files = row.top_files_json if isinstance(row.top_files_json, list) else []
+    severity = (
+        row.severity_breakdown_json
+        if isinstance(row.severity_breakdown_json, dict)
+        else {}
+    )
+    return DigestOut(
+        id=row.id,
+        app_id=row.app_id,
+        period_start=row.period_start,
+        period_end=row.period_end,
+        report_count=row.report_count,
+        previous_report_count=row.previous_report_count,
+        clusters=[
+            DigestClusterOut(
+                size=int(c.get("size", 0)),
+                representative=str(c.get("representative", "")),
+                report_ids=[int(x) for x in (c.get("report_ids") or []) if isinstance(x, int)],
+                card_ids=[int(x) for x in (c.get("card_ids") or []) if isinstance(x, int)],
+            )
+            for c in clusters
+            if isinstance(c, dict)
+        ],
+        top_files=[
+            DigestTopFileOut(
+                file_path=str(f.get("file_path", "")),
+                card_count=int(f.get("card_count", 0)),
+            )
+            for f in top_files
+            if isinstance(f, dict)
+        ],
+        severity_breakdown={str(k): int(v) for k, v in severity.items() if isinstance(v, int)},
+        generated_at=row.generated_at,
+    )
 
 
 @router.delete("/feedback/apps/{app_id}/chats", status_code=204)

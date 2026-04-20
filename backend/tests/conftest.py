@@ -14,6 +14,7 @@ from bugsift.config import get_settings
 from bugsift.db.models import (
     Base,
     FeedbackApp,
+    FeedbackDigest,
     FeedbackReport,
     GithubAppCredentials,
     Installation,
@@ -79,6 +80,7 @@ async def db_engine() -> AsyncIterator:
                 GithubAppCredentials.__table__,
                 FeedbackApp.__table__,
                 FeedbackReport.__table__,
+                FeedbackDigest.__table__,
                 RepoAnalysis.__table__,
                 RepoAnalysisChatMessage.__table__,
                 PushEvent.__table__,

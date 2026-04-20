@@ -367,6 +367,56 @@ class FeedbackReport(Base):
     )
 
 
+class FeedbackDigest(Base):
+    """Periodic summary of a feedback app's activity.
+
+    Computed on-demand from :class:`FeedbackReport` embeddings +
+    :class:`TriageCard` state. One row per ``(app_id, period_start)``
+    so you can walk history week-by-week. The ``clusters_json`` field
+    stores a precomputed greedy agglomerative grouping of similar
+    reports — cheap to re-render, avoids rerunning embeddings on the
+    list view.
+
+    Period bounds live on the row explicitly (rather than derived from
+    ``period_start`` + a literal 7-day offset) so we can later support
+    daily / monthly digests without migrating.
+    """
+
+    __tablename__ = "feedback_digests"
+    __table_args__ = (
+        UniqueConstraint("app_id", "period_start", name="uq_digest_period"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    app_id: Mapped[int] = mapped_column(
+        ForeignKey("feedback_apps.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    period_start: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+    period_end: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    report_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    previous_report_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )
+    clusters_json: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB, nullable=True
+    )
+    top_files_json: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB, nullable=True
+    )
+    severity_breakdown_json: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB, nullable=True
+    )
+    generated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class RepoAnalysisChatMessage(Base):
     """One turn of the Q&A conversation over an analysed repo.
 

@@ -547,6 +547,46 @@ export function useKickAnalysis() {
   });
 }
 
+export type FeedbackDigest = {
+  id: number | null;
+  app_id: number;
+  period_start: string;
+  period_end: string;
+  report_count: number;
+  previous_report_count: number;
+  clusters: {
+    size: number;
+    representative: string;
+    report_ids: number[];
+    card_ids: number[];
+  }[];
+  top_files: { file_path: string; card_count: number }[];
+  severity_breakdown: Record<string, number>;
+  generated_at: string;
+};
+
+export function useFeedbackDigests(appId: number | null, enabled: boolean) {
+  return useQuery<FeedbackDigest[]>({
+    queryKey: ["feedback-digests", appId],
+    queryFn: () =>
+      apiFetch<FeedbackDigest[]>(`/feedback/apps/${appId}/digests`),
+    enabled: enabled && appId !== null,
+  });
+}
+
+export function useComputeCurrentDigest() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (appId: number) =>
+      apiFetch<FeedbackDigest>(
+        `/feedback/apps/${appId}/digests/current`,
+        { method: "POST" },
+      ),
+    onSuccess: (_data, appId) =>
+      qc.invalidateQueries({ queryKey: ["feedback-digests", appId] }),
+  });
+}
+
 export type AnalysisChatMessage = {
   id: number;
   role: "user" | "assistant";
