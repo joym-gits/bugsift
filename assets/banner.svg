@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1544 400" role="img" aria-label="bugsift — sift signal from noise in your issue tracker">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fff7ed"/>
+      <stop offset="1" stop-color="#ffedd5"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ea7a1c"/>
+      <stop offset="1" stop-color="#c2410c"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1544" height="400" fill="url(#bg)"/>
+
+  <!-- soft decorative dot grid so the banner doesn't feel flat -->
+  <g fill="#f59e0b" opacity="0.08">
+    <circle cx="80"   cy="60"  r="3"/>
+    <circle cx="160"  cy="100" r="3"/>
+    <circle cx="240"  cy="60"  r="3"/>
+    <circle cx="320"  cy="100" r="3"/>
+    <circle cx="1224" cy="60"  r="3"/>
+    <circle cx="1304" cy="100" r="3"/>
+    <circle cx="1384" cy="60"  r="3"/>
+    <circle cx="1464" cy="100" r="3"/>
+    <circle cx="80"   cy="340" r="3"/>
+    <circle cx="160"  cy="300" r="3"/>
+    <circle cx="240"  cy="340" r="3"/>
+    <circle cx="320"  cy="300" r="3"/>
+    <circle cx="1224" cy="340" r="3"/>
+    <circle cx="1304" cy="300" r="3"/>
+    <circle cx="1384" cy="340" r="3"/>
+    <circle cx="1464" cy="300" r="3"/>
+  </g>
+
+  <!-- wordmark -->
+  <g text-anchor="middle" font-family="Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+    <text x="772" y="200" font-weight="700" font-size="160" letter-spacing="-5" fill="#1c1917">bugsift</text>
+    <!-- tagline, orange period anchors the brand accent without depending on font metrics -->
+    <text x="772" y="275" font-weight="500" font-size="34" fill="#44403c">
+      Sift signal from noise in your issue tracker<tspan fill="url(#accent)">.</tspan>
+    </text>
+    <text x="772" y="330" font-weight="500" font-size="20" fill="#a8a29e">
+      Self-hosted GitHub triage with operator-in-the-loop approval.
+    </text>
+  </g>
+</svg>
