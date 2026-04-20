@@ -12,6 +12,15 @@ actually need it.
 
 ## High-level diagram
 
+![bugsift architecture](./architecture.svg)
+
+Full SVG: [architecture.svg](./architecture.svg) — shows every service
+in the compose stack, the security boundaries around the reproduction
+sandbox, the data tables each component touches, and the outbound
+integrations (LLM providers, GitHub API, Slack, Jira, Let's Encrypt).
+
+A stripped text version for terminals that can't render SVG:
+
 ```
 GitHub webhook
      │

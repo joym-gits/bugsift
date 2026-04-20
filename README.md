@@ -193,6 +193,12 @@ for every version. Highlights from recent drops:
 
 ## 🏗️ Architecture
 
+<p align="center">
+  <a href="docs/architecture.svg">
+    <img src="docs/architecture.svg" alt="bugsift system architecture diagram" width="100%"/>
+  </a>
+</p>
+
 | Layer | Stack |
 |---|---|
 | **Backend** | Python 3.11 · FastAPI · SQLAlchemy 2.0 async · Redis + RQ |
@@ -205,8 +211,9 @@ for every version. Highlights from recent drops:
 
 The design is **deterministic** — no LangChain, no LangGraph, no
 ReAct loops. One small orchestrator in ~300 lines runs the pipeline
-steps in a fixed order. See
-[docs/architecture.md](docs/architecture.md).
+steps in a fixed order. Full text walkthrough:
+📋 [docs/architecture.md](docs/architecture.md). Full diagram:
+📋 [docs/architecture.svg](docs/architecture.svg).
 
 ## 🧱 Self-host guide
 
