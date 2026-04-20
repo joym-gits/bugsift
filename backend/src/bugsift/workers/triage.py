@@ -146,23 +146,78 @@ async def _process_issue_opened(payload: dict[str, Any]) -> None:
         card = _write_card(session, state)
         await session.flush()  # populate card.id so LLMUsage can reference it
         _record_llm_usage(session, state, card_id=card.id)
+        rule_outcome = await _apply_routing_rules(session, card, repo)
         await session.commit()
 
-        _fire_slack_events(card, state)
+        _fire_slack_events(card, state, rule_outcome)
 
 
-def _fire_slack_events(card, state) -> None:
+def _fire_slack_events(card, state, rule_outcome=None) -> None:
     """Enqueue slack notifications per card event. Safe to call on every
     triage run — the worker fans out to destinations and applies per-
-    destination event filters."""
+    destination event filters. Rule-driven destinations (the outcome
+    of :mod:`bugsift.rules.engine`) are additive on top of the
+    user's default event filters.
+    """
     from bugsift.workers import enqueue as enqueue_jobs
 
     try:
         enqueue_jobs.enqueue_slack_notification(card.id, "new_card")
         if state.regression_suspects:
             enqueue_jobs.enqueue_slack_notification(card.id, "regression")
+        if rule_outcome is not None:
+            # Rule-targeted notifications piggy-back on the "new_card"
+            # message template so operators get a familiar-looking
+            # card summary; the rule-match identity is implicit in the
+            # operator having wired that destination to that rule.
+            for dest_id in rule_outcome.notify_slack_destination_ids:
+                enqueue_jobs.enqueue_slack_notification(
+                    card.id, "new_card", destination_id=dest_id
+                )
     except Exception:
         logger.exception("slack: enqueue failed for card_id=%s; continuing", card.id)
+
+
+async def _apply_routing_rules(session, card: TriageCard, repo) -> Any:
+    """Evaluate operator-defined routing rules for this card and merge
+    the outcome into the card row. Mutations here are additive: rule
+    assignees layer on top of CODEOWNERS suggestions, rule labels on
+    top of the LLM's proposed labels. Scalar fields (``sla_minutes``)
+    are set last-match-wins.
+    """
+    from bugsift.rules import engine as rules_engine
+
+    try:
+        outcome = await rules_engine.evaluate_async(session, card, repo=repo)
+    except Exception:
+        logger.exception("rules engine failed for card_id=%s; continuing", card.id)
+        return None
+    if not outcome.any:
+        return outcome
+
+    if outcome.add_assignees:
+        current = list(card.suggested_assignees_json or [])
+        for login in outcome.add_assignees:
+            if login not in current:
+                current.append(login)
+        card.suggested_assignees_json = current or None
+    if outcome.add_labels:
+        current = list(card.proposed_labels_json or [])
+        for label in outcome.add_labels:
+            if label not in current:
+                current.append(label)
+        card.proposed_labels_json = current or None
+    if outcome.sla_minutes is not None:
+        card.sla_minutes = outcome.sla_minutes
+    logger.info(
+        "triage_rules matched card_id=%s rules=%s sla=%s assignees=%s labels=%s",
+        card.id,
+        outcome.matched_rule_ids,
+        outcome.sla_minutes,
+        outcome.add_assignees,
+        outcome.add_labels,
+    )
+    return outcome
 
 
 def _reproduce_languages_from_config(config: RepoConfig | None) -> set[str] | None:

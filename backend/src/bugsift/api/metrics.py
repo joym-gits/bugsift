@@ -52,6 +52,11 @@ class MetricsResponse(BaseModel):
     classification_mix: list[CountByKey]
     severity_mix: list[CountByKey]
     pii_scrub_rate: float  # share of cards in window where PII was scrubbed
+    # SLA compliance — of cards in window that had an SLA set, what
+    # share were decided (posted or skipped) without a breach alert.
+    # Null when no card in the window carried an SLA.
+    sla_compliance_rate: float | None
+    sla_cards_total: int
 
 
 @router.get("", response_model=MetricsResponse)
@@ -75,6 +80,7 @@ async def metrics(
     total_cost = sum(p.value for p in cost_by_day)
     cards_created = sum(int(p.value) for p in cards_by_day)
     pii_rate = await _pii_scrub_rate(session, since)
+    sla_rate, sla_total = await _sla_compliance(session, since)
 
     return MetricsResponse(
         window_days=days,
@@ -90,6 +96,8 @@ async def metrics(
         classification_mix=classification_mix,
         severity_mix=severity_mix,
         pii_scrub_rate=pii_rate,
+        sla_compliance_rate=sla_rate,
+        sla_cards_total=sla_total,
     )
 
 
@@ -189,6 +197,40 @@ async def _card_key_mix(
     )
     rows = (await session.execute(stmt)).all()
     return [CountByKey(key=str(k or "unclassified"), value=float(n)) for k, n in rows]
+
+
+async def _sla_compliance(
+    session: AsyncSession, since: datetime
+) -> tuple[float | None, int]:
+    """Share of SLA-bearing cards in the window that weren't breached.
+
+    Denominator: cards with a non-null ``sla_minutes`` created in the
+    window. Numerator: that same set minus rows with a breach alert.
+    Pending cards without a breach (yet) count as compliant — a
+    breach-then-resolved card stays marked breached.
+    """
+    total = (
+        await session.execute(
+            select(func.count())
+            .select_from(TriageCard)
+            .where(TriageCard.created_at >= since, TriageCard.sla_minutes.is_not(None))
+        )
+    ).scalar_one()
+    if not total:
+        return None, 0
+    breached = (
+        await session.execute(
+            select(func.count())
+            .select_from(TriageCard)
+            .where(
+                TriageCard.created_at >= since,
+                TriageCard.sla_minutes.is_not(None),
+                TriageCard.sla_breach_alerted_at.is_not(None),
+            )
+        )
+    ).scalar_one()
+    compliant = int(total) - int(breached)
+    return float(compliant) / float(total), int(total)
 
 
 async def _pii_scrub_rate(session: AsyncSession, since: datetime) -> float:

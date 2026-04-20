@@ -97,6 +97,10 @@ class CardResponse(BaseModel):
     # went to the LLM. ``null`` = card predates the redactor; ``{}`` =
     # clean; populated dict = show a pill on the tile.
     pii_redacted: dict[str, int] | None = None
+    # SLA set by a matching routing rule. Minutes from ``created_at``
+    # after which a still-pending card is considered breached.
+    sla_minutes: int | None = None
+    sla_breach_alerted_at: datetime | None = None
     final_comment: str | None = None
     created_at: datetime
 
@@ -739,6 +743,8 @@ def _card_response(
             if isinstance(card.pii_redacted_json, dict)
             else None
         ),
+        sla_minutes=card.sla_minutes,
+        sla_breach_alerted_at=card.sla_breach_alerted_at,
         final_comment=card.final_comment,
         created_at=card.created_at,
     )

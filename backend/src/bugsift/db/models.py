@@ -197,6 +197,14 @@ class TriageCard(Base):
     # counts. ``None`` = card predates the redactor; ``{}`` = scanned
     # and nothing matched.
     pii_redacted_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    # Operator SLA — minutes from ``created_at`` before a still-pending
+    # card is considered breached. Set by a matching TriageRule at card
+    # creation time. ``sla_breach_alerted_at`` is set by the SLA watcher
+    # so we don't re-alert every minute after the breach.
+    sla_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    sla_breach_alerted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     raw_payload_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -602,6 +610,36 @@ class GithubAppCredentials(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class TriageRule(Base):
+    """Operator-defined routing rule — runs after every card is
+    written. Conditions are stored as a JSON dict (all AND-combined);
+    actions as a JSON dict of additive operations (assign logins,
+    notify Slack destination, set SLA, etc.). Rules are per-owner so
+    multi-tenant deployments don't leak rules across users.
+    """
+
+    __tablename__ = "triage_rules"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
+    match_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    action_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
     )
 
 

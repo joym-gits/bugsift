@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Clock,
   GitPullRequestArrow,
   MessageSquareWarning,
   ShieldCheck,
@@ -36,6 +37,7 @@ export function TriageTile({
   const piiTotal = card.pii_redacted
     ? Object.values(card.pii_redacted).reduce((a, b) => a + b, 0)
     : 0;
+  const sla = slaStatus(card);
 
   return (
     <button
@@ -99,6 +101,22 @@ export function TriageTile({
             PII scrubbed
           </span>
         )}
+        {sla && (
+          <span
+            className={cn(
+              "inline-flex items-center gap-1 rounded-full border px-2 py-0.5",
+              sla.tint === "breached"
+                ? "border-destructive/40 bg-destructive/10 text-destructive"
+                : sla.tint === "urgent"
+                  ? "border-warning/40 bg-warning/10 text-warning"
+                  : "border-border bg-muted/40 text-muted-foreground",
+            )}
+            title={sla.tooltip}
+          >
+            <Clock className="h-3 w-3" />
+            {sla.label}
+          </span>
+        )}
         {typeof card.confidence === "number" && (
           <span className="text-muted-foreground/80">
             conf {card.confidence.toFixed(2)}
@@ -124,6 +142,35 @@ export function TriageTile({
       </div>
     </button>
   );
+}
+
+type SlaStatus = {
+  label: string;
+  tint: "breached" | "urgent" | "ok";
+  tooltip: string;
+};
+
+function slaStatus(card: Card): SlaStatus | null {
+  const mins = card.sla_minutes;
+  if (!mins) return null;
+  const created = new Date(card.created_at).getTime();
+  const deadline = created + mins * 60_000;
+  const now = Date.now();
+  const deltaMin = Math.round((deadline - now) / 60_000);
+  if (card.sla_breach_alerted_at || deltaMin < 0) {
+    const lateBy = Math.max(1, -deltaMin);
+    return {
+      label: `breached ${lateBy}m`,
+      tint: "breached",
+      tooltip: `SLA was ${mins}m; breached ${lateBy} minute${lateBy === 1 ? "" : "s"} ago`,
+    };
+  }
+  const tint: SlaStatus["tint"] = deltaMin <= Math.max(5, Math.floor(mins * 0.1)) ? "urgent" : "ok";
+  return {
+    label: `SLA in ${deltaMin}m`,
+    tint,
+    tooltip: `${mins}m SLA, ${deltaMin}m to spare`,
+  };
 }
 
 function firstLine(s: string | null | undefined): string | null {

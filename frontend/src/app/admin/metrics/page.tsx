@@ -98,6 +98,21 @@ function MetricsBody({ data, days }: { data: MetricsResponse; days: number }) {
         />
       </div>
 
+      {data.sla_compliance_rate !== null && (
+        <div className="grid gap-4 md:grid-cols-2">
+          <Stat
+            label="SLA compliance"
+            value={`${Math.round(data.sla_compliance_rate * 100)}%`}
+            hint={`across ${data.sla_cards_total} card${data.sla_cards_total === 1 ? "" : "s"} with an SLA`}
+          />
+          <Stat
+            label="SLA cards"
+            value={data.sla_cards_total.toLocaleString()}
+            hint={`created in last ${days} days`}
+          />
+        </div>
+      )}
+
       <div className="grid gap-6 lg:grid-cols-2">
         <ChartCard title="Cards per day">
           <Sparkline series={data.cards_by_day} format={(v) => `${v.toFixed(0)} cards`} />

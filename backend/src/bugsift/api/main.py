@@ -20,6 +20,7 @@ from bugsift.api.llm import router as llm_router
 from bugsift.api.manifest import router as manifest_router
 from bugsift.api.metrics import router as metrics_router
 from bugsift.api.repos import router as repos_router
+from bugsift.api.rules import router as rules_router
 from bugsift.api.slack import router as slack_router
 from bugsift.api.tickets import router as tickets_router
 from bugsift.api.usage import router as usage_router
@@ -29,6 +30,7 @@ from bugsift.api.widget import router as widget_router
 from bugsift.config import get_settings
 from bugsift.github import smee
 from bugsift.security import crypto
+from bugsift.workers import sla_watch
 
 logger = logging.getLogger(__name__)
 
@@ -53,8 +55,13 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     except Exception:  # pragma: no cover - startup resilience
         logger.exception("smee forwarder failed to start; webhooks will not flow until fixed")
     try:
+        await sla_watch.start()
+    except Exception:  # pragma: no cover
+        logger.exception("sla-watcher failed to start; SLA breaches will not alert")
+    try:
         yield
     finally:
+        await sla_watch.stop()
         await smee.stop_forwarder()
 
 
@@ -153,6 +160,7 @@ def create_app() -> FastAPI:
     app.include_router(users_router)
     app.include_router(audit_router)
     app.include_router(metrics_router)
+    app.include_router(rules_router)
 
     return app
 

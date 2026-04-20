@@ -81,7 +81,92 @@ export type MetricsResponse = {
   classification_mix: CountByKey[];
   severity_mix: CountByKey[];
   pii_scrub_rate: number;
+  sla_compliance_rate: number | null;
+  sla_cards_total: number;
 };
+
+export type RuleMatch = Partial<{
+  classification: string;
+  severity: string;
+  source: string;
+  repo_full_name_glob: string;
+  reproduction_verdict: string;
+  has_regression_suspects: boolean;
+  min_confidence: number;
+  proposed_action: string;
+}>;
+
+export type RuleAction = Partial<{
+  assign: string[];
+  add_labels: string[];
+  notify_slack: number;
+  sla_minutes: number;
+  escalate_to_pagerduty_integration_key: string;
+}>;
+
+export type TriageRule = {
+  id: number;
+  name: string;
+  enabled: boolean;
+  priority: number;
+  match: RuleMatch;
+  action: RuleAction;
+  created_at: string;
+  updated_at: string;
+};
+
+export function useRules(enabled: boolean) {
+  return useQuery<TriageRule[]>({
+    queryKey: ["rules"],
+    queryFn: () => apiFetch<TriageRule[]>("/rules"),
+    enabled,
+  });
+}
+
+export function useCreateRule() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: {
+      name: string;
+      enabled: boolean;
+      priority: number;
+      match: RuleMatch;
+      action: RuleAction;
+    }) =>
+      apiFetch<TriageRule>("/rules", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["rules"] }),
+  });
+}
+
+export function useUpdateRule() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      body,
+    }: {
+      id: number;
+      body: Partial<Omit<TriageRule, "id" | "created_at" | "updated_at">>;
+    }) =>
+      apiFetch<TriageRule>(`/rules/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["rules"] }),
+  });
+}
+
+export function useDeleteRule() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) =>
+      apiFetch<void>(`/rules/${id}`, { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["rules"] }),
+  });
+}
 
 export function useMetrics(enabled: boolean, days: number = 30) {
   return useQuery<MetricsResponse>({
@@ -220,6 +305,8 @@ export type Card = {
   reproduction_log?: string | null;
   budget_limited?: boolean;
   pii_redacted?: Record<string, number> | null;
+  sla_minutes?: number | null;
+  sla_breach_alerted_at?: string | null;
   final_comment?: string | null;
   created_at: string;
 };

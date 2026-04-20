@@ -12,6 +12,7 @@ import {
   Rocket,
   ScrollText,
   Settings,
+  SlidersHorizontal,
   Users as UsersIcon,
   type LucideIcon,
 } from "lucide-react";
@@ -57,6 +58,7 @@ const NAV: NavGroup[] = [
     adminOnly: true,
     items: [
       { href: "/admin/metrics", label: "Metrics", icon: BarChart3 },
+      { href: "/admin/rules", label: "Rules", icon: SlidersHorizontal },
       { href: "/admin/users", label: "Users", icon: UsersIcon },
       { href: "/admin/audit", label: "Audit log", icon: ScrollText },
     ],

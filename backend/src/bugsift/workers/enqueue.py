@@ -77,9 +77,20 @@ def enqueue_refresh_codeowners(repo_id: int) -> None:
     _queue("indexing").enqueue(codeowners_jobs.refresh_codeowners, repo_id)
 
 
-def enqueue_slack_notification(card_id: int, event: str) -> None:
+def enqueue_slack_notification(
+    card_id: int,
+    event: str,
+    *,
+    destination_id: int | None = None,
+) -> None:
     """Fan-out a card event to every matching Slack destination.
 
     Goes through the ``default`` queue so slow Slack calls don't back
-    up triage. The worker itself decides which destinations to hit."""
-    _queue("default").enqueue(slack_jobs.notify_card_event, card_id, event)
+    up triage. The worker itself decides which destinations to hit.
+    Pass ``destination_id`` to target one specific destination
+    regardless of its event filter — used by routing rules that
+    force a notification to a fixed channel.
+    """
+    _queue("default").enqueue(
+        slack_jobs.notify_card_event, card_id, event, destination_id
+    )

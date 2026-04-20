@@ -30,11 +30,15 @@ from bugsift.slack import notifier
 logger = logging.getLogger(__name__)
 
 
-def notify_card_event(card_id: int, event: str) -> None:
-    asyncio.run(_notify_card_event(card_id, event))
+def notify_card_event(
+    card_id: int, event: str, destination_id: int | None = None
+) -> None:
+    asyncio.run(_notify_card_event(card_id, event, destination_id))
 
 
-async def _notify_card_event(card_id: int, event: str) -> None:
+async def _notify_card_event(
+    card_id: int, event: str, destination_id: int | None
+) -> None:
     async with SessionLocal() as session:
         card = await session.get(TriageCard, card_id)
         if card is None:
@@ -52,13 +56,23 @@ async def _notify_card_event(card_id: int, event: str) -> None:
             )
             return
 
-        destinations = (
-            await session.execute(
-                select(SlackDestination).where(
-                    SlackDestination.user_id == install.user_id
-                )
+        # A routing rule can target a specific destination regardless
+        # of its event filter. Load that one destination and bypass
+        # ``should_notify`` for it; otherwise fan out to every
+        # destination the user owns.
+        if destination_id is not None:
+            dest = await session.get(SlackDestination, destination_id)
+            destinations = (
+                [dest] if dest and dest.user_id == install.user_id else []
             )
-        ).scalars().all()
+        else:
+            destinations = (
+                await session.execute(
+                    select(SlackDestination).where(
+                        SlackDestination.user_id == install.user_id
+                    )
+                )
+            ).scalars().all()
         if not destinations:
             return
 
@@ -69,7 +83,10 @@ async def _notify_card_event(card_id: int, event: str) -> None:
 
         fired = 0
         for dest in destinations:
-            if not notifier.should_notify(dest, event):
+            # Rule-targeted notifications bypass the per-destination
+            # event filter — the operator already chose to route *this*
+            # card to *this* channel.
+            if destination_id is None and not notifier.should_notify(dest, event):
                 continue
             try:
                 result = await notifier.post_card_event(

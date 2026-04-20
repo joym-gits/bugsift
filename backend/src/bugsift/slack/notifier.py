@@ -36,15 +36,23 @@ logger = logging.getLogger(__name__)
 EVENT_NEW_CARD = "new_card"
 EVENT_APPROVED = "approved"
 EVENT_REGRESSION = "regression"
+EVENT_SLA_BREACH = "sla_breach"
 
-EVENTS: tuple[str, ...] = (EVENT_NEW_CARD, EVENT_APPROVED, EVENT_REGRESSION)
+EVENTS: tuple[str, ...] = (
+    EVENT_NEW_CARD,
+    EVENT_APPROVED,
+    EVENT_REGRESSION,
+    EVENT_SLA_BREACH,
+)
 
 # New destinations default to these events — the signal-to-noise ratio
-# here is good (a new card you haven't looked at + real cause found).
+# here is good (a new card you haven't looked at + real cause found,
+# or an SLA breach the operator explicitly configured).
 DEFAULT_EVENTS: dict[str, bool] = {
     EVENT_NEW_CARD: True,
     EVENT_APPROVED: False,
     EVENT_REGRESSION: True,
+    EVENT_SLA_BREACH: True,
 }
 
 
@@ -219,6 +227,7 @@ def _event_heading(event: str) -> str:
         EVENT_NEW_CARD: "🆕 New card",
         EVENT_APPROVED: "✅ Approved",
         EVENT_REGRESSION: "⚠️ Likely regression",
+        EVENT_SLA_BREACH: "🚨 SLA breached",
     }.get(event, "bugsift")
 
 

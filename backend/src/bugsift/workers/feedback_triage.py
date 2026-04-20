@@ -213,23 +213,66 @@ async def _process_feedback_report(report_id: int) -> None:
         await session.flush()
         report.card_id = card.id
         _record_llm_usage(session, state, card_id=card.id)
+        rule_outcome = await _apply_routing_rules(session, card, repo)
         await session.commit()
 
-        _fire_slack_events(card, state)
+        _fire_slack_events(card, state, rule_outcome)
 
 
-def _fire_slack_events(card, state) -> None:
+def _fire_slack_events(card, state, rule_outcome=None) -> None:
     """Mirror of :func:`bugsift.workers.triage._fire_slack_events` for
     the feedback pipeline. Dedup merges (where we attached a report to
-    an existing card) don't reach here — they return before card write."""
+    an existing card) don't reach here — they return before card write.
+    """
     from bugsift.workers import enqueue as enqueue_jobs
 
     try:
         enqueue_jobs.enqueue_slack_notification(card.id, "new_card")
         if state.regression_suspects:
             enqueue_jobs.enqueue_slack_notification(card.id, "regression")
+        if rule_outcome is not None:
+            for dest_id in rule_outcome.notify_slack_destination_ids:
+                enqueue_jobs.enqueue_slack_notification(
+                    card.id, "new_card", destination_id=dest_id
+                )
     except Exception:
         logger.exception("slack: enqueue failed for card_id=%s; continuing", card.id)
+
+
+async def _apply_routing_rules(session, card, repo):
+    """Delegate to the shared engine; mirrors the logic in
+    :mod:`bugsift.workers.triage`. Mutations are additive so the
+    LLM-suggested assignees / labels aren't thrown away."""
+    from bugsift.rules import engine as rules_engine
+
+    try:
+        outcome = await rules_engine.evaluate_async(session, card, repo=repo)
+    except Exception:
+        logger.exception("rules engine failed for card_id=%s; continuing", card.id)
+        return None
+    if not outcome.any:
+        return outcome
+    if outcome.add_assignees:
+        current = list(card.suggested_assignees_json or [])
+        for login in outcome.add_assignees:
+            if login not in current:
+                current.append(login)
+        card.suggested_assignees_json = current or None
+    if outcome.add_labels:
+        current = list(card.proposed_labels_json or [])
+        for label in outcome.add_labels:
+            if label not in current:
+                current.append(label)
+        card.proposed_labels_json = current or None
+    if outcome.sla_minutes is not None:
+        card.sla_minutes = outcome.sla_minutes
+    logger.info(
+        "triage_rules matched (feedback) card_id=%s rules=%s sla=%s",
+        card.id,
+        outcome.matched_rule_ids,
+        outcome.sla_minutes,
+    )
+    return outcome
 
 
 def _bare_state(report: FeedbackReport, repo: Repo) -> TriageState:
