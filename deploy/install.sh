@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # bugsift — one-command self-host installer.
 #
-#   curl -fsSL https://raw.githubusercontent.com/joym-gits/bugsift/main/deploy/install.sh | bash
+#   curl -fsSL https://github.com/joym-gits/bugsift/releases/latest/download/install.sh | bash
 #
 # Or, if you want to review it first (you should):
 #
-#   curl -fsSLo install.sh https://raw.githubusercontent.com/joym-gits/bugsift/main/deploy/install.sh
+#   curl -fsSLo install.sh https://github.com/joym-gits/bugsift/releases/latest/download/install.sh
 #   less install.sh
 #   bash install.sh
 #
@@ -21,13 +21,25 @@
 #
 # Re-running the script on an existing directory is safe — if ``.env``
 # already exists, it's left alone.
+#
+# Pinning a specific release:
+#
+#   BUGSIFT_IMAGE_TAG=v0.1.0 \
+#     curl -fsSL https://github.com/joym-gits/bugsift/releases/download/v0.1.0/install.sh | bash
 
 set -euo pipefail
 
 # --- config ----------------------------------------------------------------
 
 : "${BUGSIFT_DIR:=$PWD/bugsift}"
-: "${BUGSIFT_RAW_URL:=https://raw.githubusercontent.com/joym-gits/bugsift/main}"
+# Default to the ``latest`` release — the URL is stable across releases
+# because GitHub redirects ``releases/latest/download/<name>`` to the
+# newest asset. Override ``BUGSIFT_ASSET_URL`` for a pinned version
+# (e.g. https://github.com/.../releases/download/v0.1.0) or a fork.
+# ``BUGSIFT_RAW_URL`` is kept for backward compat with older install
+# commands that pulled from raw.githubusercontent.com.
+: "${BUGSIFT_ASSET_URL:=https://github.com/joym-gits/bugsift/releases/latest/download}"
+: "${BUGSIFT_RAW_URL:=$BUGSIFT_ASSET_URL}"
 : "${BUGSIFT_PUBLIC_PORT:=8080}"
 : "${BUGSIFT_PUBLIC_URL:=http://localhost:${BUGSIFT_PUBLIC_PORT}}"
 : "${BUGSIFT_ENV:=production}"
@@ -89,7 +101,16 @@ cd "$BUGSIFT_DIR"
 
 if [ ! -f docker-compose.yml ]; then
   info "downloading docker-compose.yml"
-  curl -fsSLo docker-compose.yml "$BUGSIFT_RAW_URL/deploy/docker-compose.prod.yml"
+  # Release assets land at ``<asset_url>/docker-compose.prod.yml``; the
+  # legacy ``raw.githubusercontent.com/.../deploy/...`` URL layout is
+  # still tolerated so someone running the installer from a non-
+  # released fork can set ``BUGSIFT_ASSET_URL`` to the raw path.
+  if [[ "$BUGSIFT_ASSET_URL" == *"/raw.githubusercontent.com/"* ]]; then
+    compose_url="$BUGSIFT_ASSET_URL/deploy/docker-compose.prod.yml"
+  else
+    compose_url="$BUGSIFT_ASSET_URL/docker-compose.prod.yml"
+  fi
+  curl -fsSLo docker-compose.yml "$compose_url"
   ok "docker-compose.yml written"
 else
   info "docker-compose.yml already exists — left alone"
@@ -183,7 +204,7 @@ printf "%bNext steps%b\n" "$c_primary" "$c_reset"
 info "1. Open the dashboard and click 'Register GitHub App'."
 info "2. When prompted, paste the bootstrap token above."
 info "3. Install the App on a repo and add your LLM provider key."
-info "   (Full guide: ${BUGSIFT_RAW_URL%/main}/blob/main/deploy/README.md)"
+info "   Full guide: https://github.com/${BUGSIFT_IMAGE_OWNER}/bugsift/blob/main/deploy/README.md"
 echo
 printf "%bDay-to-day commands%b\n" "$c_dim" "$c_reset"
 info "  cd $BUGSIFT_DIR"

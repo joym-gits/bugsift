@@ -1,0 +1,86 @@
+name: Release
+
+# Fires when a ``v*.*.*`` tag is pushed. Builds a GitHub Release,
+# attaches the self-host assets (install.sh, docker-compose.prod.yml,
+# docker-compose.caddy.yml, and a deploy/ tarball), and auto-generates
+# release notes from commits since the previous tag. The stable URL
+# ``https://github.com/<owner>/<repo>/releases/latest/download/install.sh``
+# always redirects to the newest asset, so the public one-liner
+# install command never changes after a release.
+#
+# The companion ``publish-images`` workflow pushes container images
+# for the same tag to GHCR, so users pinning to vX.Y.Z via
+# ``BUGSIFT_IMAGE_TAG`` get a fully reproducible deployment.
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (e.g. v0.1.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so the auto-generated notes can diff against
+          # the previous tag rather than the shallow default clone.
+          fetch-depth: 0
+
+      - name: Resolve tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.tag }}" >>"$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF_NAME}" >>"$GITHUB_OUTPUT"
+          fi
+
+      - name: Build deploy bundle
+        run: |
+          mkdir -p dist
+          # Individual assets — discoverable, downloadable one at a time.
+          cp deploy/install.sh                    dist/install.sh
+          cp deploy/docker-compose.prod.yml       dist/docker-compose.prod.yml
+          cp deploy/docker-compose.caddy.yml      dist/docker-compose.caddy.yml
+          # Convenience bundle for air-gapped installs.
+          tar -czf dist/bugsift-deploy.tar.gz -C deploy .
+          ls -la dist
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: bugsift ${{ steps.tag.outputs.tag }}
+          generate_release_notes: true
+          body: |
+            ## Install
+
+            ```sh
+            curl -fsSL https://github.com/${{ github.repository }}/releases/latest/download/install.sh | bash
+            ```
+
+            The installer pulls pre-built images from GitHub Container
+            Registry (see the `publish-images` workflow), generates all
+            secrets, writes `.env`, runs migrations, and starts the
+            stack. Full self-host guide:
+            <https://github.com/${{ github.repository }}/blob/main/deploy/README.md>.
+
+            ## Pin this version
+
+            ```sh
+            BUGSIFT_IMAGE_TAG=${{ steps.tag.outputs.tag }} \
+              curl -fsSL https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.tag }}/install.sh | bash
+            ```
+          files: |
+            dist/install.sh
+            dist/docker-compose.prod.yml
+            dist/docker-compose.caddy.yml
+            dist/bugsift-deploy.tar.gz

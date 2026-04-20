@@ -39,12 +39,17 @@ secret, pulls pre-built images from GitHub Container Registry, runs
 migrations, and prints your dashboard URL + first-run token:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/joym-gits/bugsift/main/deploy/install.sh | bash
+curl -fsSL https://github.com/joym-gits/bugsift/releases/latest/download/install.sh | bash
 ```
 
 Total time from shell to first triaged issue: under five minutes. See
 [deploy/README.md](deploy/README.md) for the full self-host guide —
 upgrades, backups, TLS via Caddy, configuration reference.
+
+Want to pin a specific version for reproducibility? Every release
+publishes an `install.sh` + `docker-compose.prod.yml` at
+`github.com/joym-gits/bugsift/releases/tag/vX.Y.Z`, and
+`BUGSIFT_IMAGE_TAG=vX.Y.Z` keeps your deployment on that exact image.
 
 ## Running from source (contributors)
 

@@ -9,7 +9,7 @@ Docker-Compose-based and fits comfortably on a single 2 GB VM.
 **Requirements:** Docker 24+, the `compose` plugin, and ~2 GB RAM.
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/joym-gits/bugsift/main/deploy/install.sh | bash
+curl -fsSL https://github.com/joym-gits/bugsift/releases/latest/download/install.sh | bash
 ```
 
 The installer lands a `bugsift/` directory in your working folder,
@@ -22,7 +22,21 @@ the token when prompted, and follow the wizard. Total time from
 `curl` to your first triaged issue: under five minutes.
 
 > Prefer to read before running anything? Download the script first:
-> `curl -fsSLo install.sh https://raw.githubusercontent.com/joym-gits/bugsift/main/deploy/install.sh`, then `less install.sh`.
+> `curl -fsSLo install.sh https://github.com/joym-gits/bugsift/releases/latest/download/install.sh`, then `less install.sh`.
+
+### Pin a version
+
+The default command always fetches the latest release. To pin both
+the installer and the running container images to a specific version:
+
+```sh
+BUGSIFT_IMAGE_TAG=v0.1.0 \
+  curl -fsSL https://github.com/joym-gits/bugsift/releases/download/v0.1.0/install.sh | bash
+```
+
+Every [release](https://github.com/joym-gits/bugsift/releases)
+publishes `install.sh`, `docker-compose.prod.yml`,
+`docker-compose.caddy.yml`, and a `bugsift-deploy.tar.gz` bundle.
 
 ## What's in the box
 
