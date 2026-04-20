@@ -16,10 +16,14 @@ import { Mermaid } from "@/components/Mermaid";
 import { Button } from "@/components/ui/button";
 import { ApiError } from "@/lib/api";
 import {
+  type AnalysisChatMessage,
   type FeedbackApp,
   type RepoAnalysis,
   useAddCorrection,
   useAnalysis,
+  useAnalysisChats,
+  useAskAnalysis,
+  useClearAnalysisChats,
   useFeedbackApp,
   useKickAnalysis,
   useMe,
@@ -190,6 +194,7 @@ function AnalysisSection({
           <ComponentsBlock analysis={analysis} />
           <FlowsBlock analysis={analysis} />
           <EntryPointsBlock analysis={analysis} />
+          <ChatBlock appId={appId} />
           <OverridesBlock
             analysis={analysis}
             note={note}
@@ -472,5 +477,129 @@ function OverridesBlock({
         </div>
       </div>
     </section>
+  );
+}
+
+function ChatBlock({ appId }: { appId: number }) {
+  const chats = useAnalysisChats(appId, true);
+  const ask = useAskAnalysis();
+  const clear = useClearAnalysisChats();
+  const [question, setQuestion] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErr(null);
+    const q = question.trim();
+    if (!q) return;
+    try {
+      await ask.mutateAsync({ appId, question: q });
+      setQuestion("");
+    } catch (e2) {
+      if (e2 instanceof ApiError) setErr(e2.message);
+      else if (e2 instanceof Error) setErr(e2.message);
+      else setErr("question failed");
+    }
+  };
+
+  const messages = chats.data ?? [];
+
+  return (
+    <section className="rounded-lg border bg-card p-6 shadow-sm">
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-2">
+          <MessageSquare className="h-4 w-4 text-muted-foreground" />
+          <h3 className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
+            Ask this repo
+          </h3>
+        </div>
+        {messages.length > 0 && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              if (confirm("Clear the Q&A history for this repo?")) {
+                clear.mutate(appId);
+              }
+            }}
+            disabled={clear.isPending}
+          >
+            Clear
+          </Button>
+        )}
+      </div>
+      <p className="mt-1 text-sm text-muted-foreground">
+        Questions about the codebase. bugsift answers using the stored
+        analysis + indexed code. Every concrete claim is grounded in a
+        file:line citation; no speculation.
+      </p>
+
+      {chats.isLoading ? (
+        <Skeleton className="mt-5 h-24 w-full" />
+      ) : messages.length === 0 ? (
+        <div className="mt-5 rounded-md border bg-background p-4 text-sm text-muted-foreground">
+          No questions yet. Try <em>&ldquo;Where does auth happen?&rdquo;</em>{" "}
+          or <em>&ldquo;What triggers the triage queue?&rdquo;</em>
+        </div>
+      ) : (
+        <ul className="mt-5 space-y-3">
+          {messages.map((m) => (
+            <ChatTurn key={m.id} message={m} />
+          ))}
+        </ul>
+      )}
+
+      <form onSubmit={submit} className="mt-5 space-y-2">
+        <textarea
+          value={question}
+          onChange={(e) => setQuestion(e.target.value)}
+          className="min-h-[72px] w-full rounded-md border bg-background p-2 text-sm"
+          placeholder="Ask something about this codebase…"
+          disabled={ask.isPending}
+        />
+        <div className="flex items-center gap-2">
+          <Button type="submit" size="sm" disabled={ask.isPending || !question.trim()}>
+            {ask.isPending ? "thinking…" : "Ask"}
+          </Button>
+          {err && (
+            <span className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-1.5 text-xs text-destructive">
+              {err}
+            </span>
+          )}
+        </div>
+      </form>
+    </section>
+  );
+}
+
+function ChatTurn({ message }: { message: AnalysisChatMessage }) {
+  const isUser = message.role === "user";
+  return (
+    <li
+      className={
+        "rounded-md border p-3 text-sm " +
+        (isUser ? "bg-muted/30" : "bg-background")
+      }
+    >
+      <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+        {isUser ? "you" : "bugsift"}
+      </div>
+      <div className="mt-1 whitespace-pre-wrap leading-relaxed">
+        {message.content}
+      </div>
+      {message.citations && message.citations.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1.5 text-xs">
+          {message.citations.map((c, i) => (
+            <code
+              key={`${c.file_path}:${c.line_range}:${i}`}
+              className="rounded border bg-muted/30 px-1.5 py-0.5"
+            >
+              {c.file_path}
+              {c.line_range ? `:${c.line_range}` : ""}
+            </code>
+          ))}
+        </div>
+      )}
+    </li>
   );
 }

@@ -547,6 +547,46 @@ export function useKickAnalysis() {
   });
 }
 
+export type AnalysisChatMessage = {
+  id: number;
+  role: "user" | "assistant";
+  content: string;
+  citations: { file_path: string; line_range: string }[] | null;
+  created_at: string;
+};
+
+export function useAnalysisChats(appId: number | null, enabled: boolean) {
+  return useQuery<AnalysisChatMessage[]>({
+    queryKey: ["analysis-chats", appId],
+    queryFn: () =>
+      apiFetch<AnalysisChatMessage[]>(`/feedback/apps/${appId}/chats`),
+    enabled: enabled && appId !== null,
+  });
+}
+
+export function useAskAnalysis() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { appId: number; question: string }) =>
+      apiFetch<AnalysisChatMessage[]>(`/feedback/apps/${args.appId}/chats`, {
+        method: "POST",
+        body: JSON.stringify({ question: args.question }),
+      }),
+    onSuccess: (_data, args) =>
+      qc.invalidateQueries({ queryKey: ["analysis-chats", args.appId] }),
+  });
+}
+
+export function useClearAnalysisChats() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (appId: number) =>
+      apiFetch<void>(`/feedback/apps/${appId}/chats`, { method: "DELETE" }),
+    onSuccess: (_data, appId) =>
+      qc.invalidateQueries({ queryKey: ["analysis-chats", appId] }),
+  });
+}
+
 export function useAddCorrection() {
   const qc = useQueryClient();
   return useMutation({

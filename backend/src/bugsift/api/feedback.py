@@ -36,6 +36,7 @@ from bugsift.db.models import (
     Installation,
     Repo,
     RepoAnalysis,
+    RepoAnalysisChatMessage,
     User,
 )
 from bugsift.github.rate_limit import _client as _redis_client
@@ -400,6 +401,224 @@ async def add_analysis_correction(
     await session.commit()
     await session.refresh(analysis)
     return _serialize_analysis(analysis)
+
+
+# ---------- Q&A over the analysis ----------
+
+
+class ChatMessageOut(BaseModel):
+    id: int
+    role: str
+    content: str
+    citations: list[dict] | None = None
+    created_at: datetime
+
+
+class AskBody(BaseModel):
+    question: str = Field(min_length=1, max_length=2000)
+
+
+async def _owned_analysis(
+    session: AsyncSession, user: User, app_id: int
+) -> tuple[RepoAnalysis, Repo]:
+    """Fetch the RepoAnalysis behind a feedback app, enforcing ownership
+    and returning the repo so callers can report its full_name."""
+    app = await session.get(FeedbackApp, app_id)
+    if app is None or app.user_id != user.id:
+        raise HTTPException(status_code=404, detail="app not found")
+    if app.default_repo_id is None:
+        raise HTTPException(
+            status_code=400, detail="app has no default repo"
+        )
+    repo = await session.get(Repo, app.default_repo_id)
+    if repo is None:
+        raise HTTPException(status_code=404, detail="repo not found")
+    branch = (app.target_branch or repo.default_branch or "main").strip()
+    analysis = (
+        await session.execute(
+            select(RepoAnalysis).where(
+                RepoAnalysis.repo_id == repo.id, RepoAnalysis.branch == branch
+            )
+        )
+    ).scalar_one_or_none()
+    if analysis is None or analysis.status != "ready":
+        raise HTTPException(
+            status_code=400,
+            detail="run an analysis first — Q&A needs the ready analysis",
+        )
+    return analysis, repo
+
+
+@router.get(
+    "/feedback/apps/{app_id}/chats", response_model=list[ChatMessageOut]
+)
+async def list_analysis_chats(
+    app_id: int,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> list[ChatMessageOut]:
+    analysis, _ = await _owned_analysis(session, user, app_id)
+    rows = (
+        await session.execute(
+            select(RepoAnalysisChatMessage)
+            .where(RepoAnalysisChatMessage.analysis_id == analysis.id)
+            .order_by(RepoAnalysisChatMessage.created_at.asc())
+        )
+    ).scalars().all()
+    return [
+        ChatMessageOut(
+            id=r.id,
+            role=r.role,
+            content=r.content,
+            citations=r.citations_json if isinstance(r.citations_json, list) else None,
+            created_at=r.created_at,
+        )
+        for r in rows
+    ]
+
+
+@router.post(
+    "/feedback/apps/{app_id}/chats", response_model=list[ChatMessageOut]
+)
+async def ask_analysis_chat(
+    app_id: int,
+    body: AskBody,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> list[ChatMessageOut]:
+    """Ask a question about the repo. Persists the user turn, retrieves
+    context, calls the LLM, persists the assistant turn, and returns
+    both new rows so the dashboard can append them without re-fetching
+    the whole history."""
+    from decimal import Decimal
+
+    from bugsift.analysis.qa import answer_question
+    from bugsift.db.models import Installation
+    from bugsift.llm.factory import get_provider_for_user
+    from bugsift.retrieval.embedding import (
+        EmbeddingUnavailable,
+        get_embedder_for_repo,
+    )
+    from bugsift.security import crypto
+    from bugsift.workers.triage import DEFAULT_PROVIDER
+
+    analysis, repo = await _owned_analysis(session, user, app_id)
+
+    # Load the user's completion provider — same selection logic as
+    # triage (anthropic by default).
+    install = await session.get(Installation, repo.installation_id)
+    if install is None or install.user_id is None:
+        raise HTTPException(
+            status_code=400,
+            detail="repo has no installation linked; cannot answer",
+        )
+    try:
+        owner = await session.get(User, install.user_id)
+        provider = await get_provider_for_user(
+            session, owner, DEFAULT_PROVIDER
+        )
+    except (KeyError, crypto.DecryptionFailed) as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"no usable {DEFAULT_PROVIDER} key for the owner: {e}",
+        ) from e
+
+    # Embedder — reuse the one the analysis was built with.
+    try:
+        embed_provider, choice = await get_embedder_for_repo(
+            session, repo, install.user_id
+        )
+    except EmbeddingUnavailable as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"embedder not available: {e}",
+        ) from e
+
+    # Load history to feed the LLM. Cheap; analysis chats are small.
+    history_rows = (
+        await session.execute(
+            select(RepoAnalysisChatMessage)
+            .where(RepoAnalysisChatMessage.analysis_id == analysis.id)
+            .order_by(RepoAnalysisChatMessage.created_at.asc())
+        )
+    ).scalars().all()
+    history = [{"role": r.role, "content": r.content} for r in history_rows]
+
+    # Persist the user turn first so a crash downstream still leaves a
+    # breadcrumb.
+    user_msg = RepoAnalysisChatMessage(
+        analysis_id=analysis.id,
+        role="user",
+        content=body.question.strip(),
+    )
+    session.add(user_msg)
+    await session.commit()
+    await session.refresh(user_msg)
+
+    try:
+        result = await answer_question(
+            session,
+            analysis=analysis,
+            question=body.question,
+            history=history,
+            provider=provider,
+            embed_provider=embed_provider,
+            embedding_dim=choice.dim,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        logger.exception("qa: LLM call failed for analysis_id=%s", analysis.id)
+        raise HTTPException(status_code=502, detail=f"Q&A failed: {e}") from e
+
+    assistant_msg = RepoAnalysisChatMessage(
+        analysis_id=analysis.id,
+        role="assistant",
+        content=result.answer,
+        citations_json=[c.__dict__ for c in result.citations] or None,
+        prompt_tokens=result.prompt_tokens,
+        completion_tokens=result.completion_tokens,
+        cost_usd=(
+            Decimal(f"{result.cost_usd:.6f}") if result.cost_usd else None
+        ),
+    )
+    session.add(assistant_msg)
+    await session.commit()
+    await session.refresh(assistant_msg)
+
+    return [
+        ChatMessageOut(
+            id=user_msg.id,
+            role="user",
+            content=user_msg.content,
+            citations=None,
+            created_at=user_msg.created_at,
+        ),
+        ChatMessageOut(
+            id=assistant_msg.id,
+            role="assistant",
+            content=assistant_msg.content,
+            citations=assistant_msg.citations_json
+            if isinstance(assistant_msg.citations_json, list)
+            else None,
+            created_at=assistant_msg.created_at,
+        ),
+    ]
+
+
+@router.delete("/feedback/apps/{app_id}/chats", status_code=204)
+async def clear_analysis_chats(
+    app_id: int,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> None:
+    analysis, _ = await _owned_analysis(session, user, app_id)
+    await session.execute(
+        RepoAnalysisChatMessage.__table__.delete().where(
+            RepoAnalysisChatMessage.analysis_id == analysis.id
+        )
+    )
+    await session.commit()
 
 
 def _serialize_analysis(analysis: RepoAnalysis) -> AnalysisResponse:

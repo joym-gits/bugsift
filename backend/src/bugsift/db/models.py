@@ -367,6 +367,43 @@ class FeedbackReport(Base):
     )
 
 
+class RepoAnalysisChatMessage(Base):
+    """One turn of the Q&A conversation over an analysed repo.
+
+    Tied to the ``RepoAnalysis`` row, not the feedback app — if the
+    same (repo, branch) is referenced by multiple feedback apps, they
+    share the analysis *and* the Q&A thread. Keeping the chat aligned
+    with the analysis makes "regenerate analysis" operationally
+    meaningful (new knowledge, fresh conversation space) without
+    throwing away history.
+
+    ``citations_json`` is populated only on assistant rows — a list of
+    ``{"file_path": str, "line_range": str}`` dicts the UI renders as
+    clickable chips. ``tokens_*`` / ``cost_usd`` exist so the analysis
+    view can show how much the conversation is costing.
+    """
+
+    __tablename__ = "repo_analysis_chats"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    analysis_id: Mapped[int] = mapped_column(
+        ForeignKey("repo_analyses.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    role: Mapped[str] = mapped_column(String(16), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    citations_json: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB, nullable=True
+    )
+    prompt_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    completion_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cost_usd: Mapped[float | None] = mapped_column(Numeric(10, 6), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class SlackDestination(Base):
     """A Slack Incoming Webhook destination the operator connected.
 
