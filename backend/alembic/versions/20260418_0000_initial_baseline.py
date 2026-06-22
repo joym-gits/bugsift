@@ -14,6 +14,7 @@ from collections.abc import Sequence
 from typing import Union
 
 from alembic import op
+import sqlalchemy as sa
 
 revision: str = "0000_baseline"
 down_revision: Union[str, None] = None
@@ -22,6 +23,17 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    has_vector = bind.scalar(
+        sa.text("SELECT EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'vector')")
+    )
+    if not has_vector:
+        raise RuntimeError(
+            "PostgreSQL is missing the pgvector extension. "
+            "Install pgvector on the PostgreSQL server before running migrations. "
+            "For local Windows installs, build/install pgvector with PGROOT set to "
+            "your PostgreSQL installation directory, then rerun alembic upgrade head."
+        )
     op.execute("CREATE EXTENSION IF NOT EXISTS vector")
 
 
