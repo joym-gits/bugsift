@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
+import warnings
 from collections.abc import AsyncIterator, Iterator
 from datetime import datetime, timedelta
 from typing import Any
@@ -18,6 +19,9 @@ import pytest_asyncio
 from cryptography.fernet import Fernet
 from faker import Faker
 from fastapi.testclient import TestClient
+
+# Suppress StarletteDeprecationWarning about httpx with testclient
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="starlette")
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from bugsift.api.deps import get_session

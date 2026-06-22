@@ -56,7 +56,10 @@ markers = [
     "live: optional tests that hit real LLM providers (skipped without API keys)",
 ]
 filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
     "ignore::starlette.exceptions.StarletteDeprecationWarning",
+    "error::UserWarning",
 ]
 
 [tool.ruff]
