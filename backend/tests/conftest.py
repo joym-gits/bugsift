@@ -76,6 +76,8 @@ def _test_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(s, "github_app_private_key", "test-private-key")
     monkeypatch.setattr(s, "bootstrap_token", "test-bootstrap-token")
     monkeypatch.setattr(s, "trust_proxy", False)
+    # Use in-memory Redis URL for tests
+    monkeypatch.setattr(s, "redis_url", "redis://localhost:6379/15")
 
     # Stub out Redis and Smee module lookups
     async def _no_url() -> str | None:
@@ -147,8 +149,10 @@ async def session(db_engine) -> AsyncIterator[AsyncSession]:
     """Async database session for tests."""
     maker = async_sessionmaker(db_engine, expire_on_commit=False, class_=AsyncSession)
     async with maker() as s:
-        yield s
-        await s.rollback()
+        try:
+            yield s
+        finally:
+            await s.rollback()
 
 
 @pytest_asyncio.fixture
@@ -180,12 +184,25 @@ def anyio_backend():
 # ============================================================================
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def mock_redis():
-    """Mock Redis client."""
-    with mock.patch("redis.asyncio.from_url") as mock_redis_client:
+    """Mock Redis client to prevent connection errors in tests."""
+    with mock.patch("redis.asyncio.from_url") as mock_redis_client, \
+         mock.patch("redis.from_url") as mock_sync_redis_client:
         client = mock.AsyncMock()
+        client.ping = mock.AsyncMock(return_value=True)
+        client.get = mock.AsyncMock(return_value=None)
+        client.set = mock.AsyncMock(return_value=True)
+        client.setex = mock.AsyncMock(return_value=True)
+        client.delete = mock.AsyncMock(return_value=0)
+        client.exists = mock.AsyncMock(return_value=0)
+        client.expire = mock.AsyncMock(return_value=True)
+        client.flushdb = mock.AsyncMock(return_value=True)
+        client.keys = mock.AsyncMock(return_value=[])
+        client.scan_iter = mock.AsyncMock(return_value=iter([]))
+        client.aclose = mock.AsyncMock(return_value=None)
         mock_redis_client.return_value = client
+        mock_sync_redis_client.return_value = client
         yield client
 
 
@@ -264,14 +281,14 @@ async def user_factory(session: AsyncSession):
     async def create_user(
         github_login: str | None = None,
         email: str | None = None,
-        is_admin: bool = False,
+        role: str = "triager",
         **kwargs
     ) -> User:
         user = User(
             id=str(uuid.uuid4()),
             github_login=github_login or fake.user_name(),
             email=email or fake.email(),
-            is_admin=is_admin,
+            role=role,
             created_at=datetime.utcnow(),
             updated_at=datetime.utcnow(),
         )

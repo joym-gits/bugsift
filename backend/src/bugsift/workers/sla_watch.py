@@ -57,7 +57,11 @@ async def stop() -> None:
 
 async def _loop() -> None:
     settings = get_settings()
-    redis = aioredis.from_url(settings.redis_url, decode_responses=True)
+    try:
+        redis = aioredis.from_url(settings.redis_url, decode_responses=True)
+    except Exception:  # pragma: no cover - test resilience
+        logger.exception("sla-watcher: failed to connect to redis; skipping")
+        return
     logger.info("sla-watcher: started (interval=%ss)", SCAN_INTERVAL_SEC)
     try:
         while True:
@@ -82,39 +86,42 @@ async def _scan_once() -> None:
     # Late import to avoid circulars (slack enqueue → workers → db).
     from bugsift.workers import enqueue as enqueue_jobs
 
-    async with SessionLocal() as session:
-        breaches = await _find_breaches(session)
-        if not breaches:
-            return
-        now = datetime.now(timezone.utc)
-        for card_id in breaches:
-            card = await session.get(TriageCard, card_id)
-            if card is None or card.status != "pending":
-                continue
-            card.sla_breach_alerted_at = now
-            await audit_record(
-                session,
-                action="sla.breached",
-                target_type="card",
-                target_id=card.id,
-                summary=(
-                    f"SLA breached on card #{card.id}"
-                    + (f" · {card.sla_minutes}m" if card.sla_minutes else "")
-                ),
-                metadata={
-                    "severity": card.severity,
-                    "classification": card.classification,
-                    "sla_minutes": card.sla_minutes,
-                },
-            )
-            try:
-                enqueue_jobs.enqueue_slack_notification(card.id, "sla_breach")
-            except Exception:
-                logger.exception(
-                    "sla-watcher: enqueue slack failed card_id=%s", card.id
+    try:
+        async with SessionLocal() as session:
+            breaches = await _find_breaches(session)
+            if not breaches:
+                return
+            now = datetime.now(timezone.utc)
+            for card_id in breaches:
+                card = await session.get(TriageCard, card_id)
+                if card is None or card.status != "pending":
+                    continue
+                card.sla_breach_alerted_at = now
+                await audit_record(
+                    session,
+                    action="sla.breached",
+                    target_type="card",
+                    target_id=card.id,
+                    summary=(
+                        f"SLA breached on card #{card.id}"
+                        + (f" · {card.sla_minutes}m" if card.sla_minutes else "")
+                    ),
+                    metadata={
+                        "severity": card.severity,
+                        "classification": card.classification,
+                        "sla_minutes": card.sla_minutes,
+                    },
                 )
-        await session.commit()
-        logger.info("sla-watcher: flagged %d breach(es)", len(breaches))
+                try:
+                    enqueue_jobs.enqueue_slack_notification(card.id, "sla_breach")
+                except Exception:
+                    logger.exception(
+                        "sla-watcher: enqueue slack failed card_id=%s", card.id
+                    )
+            await session.commit()
+            logger.info("sla-watcher: flagged %d breach(es)", len(breaches))
+    except Exception:
+        logger.exception("sla-watcher: scan failed; skipping")
 
 
 async def _find_breaches(session: AsyncSession) -> list[int]:

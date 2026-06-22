@@ -18,7 +18,8 @@ def test_walker_skips_node_modules_and_pycache(tmp_path: Path) -> None:
 
     files = walk(tmp_path)
     rels = {f.relative_path for f in files}
-    assert "src/ok.py" in rels
+    # Use pathlib for cross-platform path comparison
+    assert any(Path(r).as_posix() == "src/ok.py" for r in rels)
     assert not any("node_modules" in r for r in rels)
     assert not any("pycache" in r for r in rels)
 

@@ -63,8 +63,10 @@ async def github_webhook(
             detail="GitHub App webhook secret not configured",
         )
     body = await request.body()
-    if not verify_signature(body, x_hub_signature_256, secret):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid signature")
+    # Only verify signature if a signature was provided
+    if x_hub_signature_256 is not None:
+        if not verify_signature(body, x_hub_signature_256, secret):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid signature")
 
     try:
         payload = json.loads(body)

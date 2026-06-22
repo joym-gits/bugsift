@@ -43,6 +43,7 @@ def _stub_indexing_enqueue(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(webhook_route, "_enqueue_index_repo_delta", lambda *a, **kw: None)
     monkeypatch.setattr(webhook_route, "_enqueue_embed_issue", lambda *a, **kw: None)
     monkeypatch.setattr(webhook_route, "_enqueue_backfill_open_issues", lambda *a, **kw: None)
+    monkeypatch.setattr(webhook_route, "_enqueue_refresh_codeowners", lambda *a, **kw: None)
 
 
 def _post(client, secret: str, event: str, body: dict):
@@ -58,11 +59,13 @@ def _post(client, secret: str, event: str, body: dict):
     )
 
 
-def test_webhook_503_without_secret(client) -> None:
+def test_webhook_503_without_secret(client, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Temporarily unset the secret to test 503 response
+    monkeypatch.setattr(get_settings(), "github_app_webhook_secret", "")
     r = client.post(
         "/webhooks/github",
         content=b"{}",
-        headers={"X-GitHub-Event": "ping", "X-Hub-Signature-256": "sha256=deadbeef"},
+        headers={"X-GitHub-Event": "ping"},
     )
     assert r.status_code == 503
 
