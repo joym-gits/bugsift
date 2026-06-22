@@ -42,6 +42,7 @@ dev = [
   "aiosqlite>=0.20",
   "respx>=0.21",
   "fakeredis>=2.21",
+  "faker>=24.0",
 ]
 
 [tool.setuptools.packages.find]
