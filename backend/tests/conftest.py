@@ -18,10 +18,11 @@ import pytest
 import pytest_asyncio
 from cryptography.fernet import Fernet
 from faker import Faker
-from fastapi.testclient import TestClient
 
 # Suppress StarletteDeprecationWarning about httpx with testclient
-warnings.filterwarnings("ignore", category=DeprecationWarning, module="starlette")
+# Must be before importing TestClient
+warnings.simplefilter("ignore", DeprecationWarning)
+from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from bugsift.api.deps import get_session
