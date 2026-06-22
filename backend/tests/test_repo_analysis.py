@@ -226,7 +226,7 @@ def test_kick_analysis_404_for_other_users_app(client, logged_in: User, session)
         await session.commit()
         return row.id
 
-    other_id = asyncio.get_event_loop().run_until_complete(_seed())
+    other_id = asyncio.run(_seed())
     r = client.post(f"/feedback/apps/{other_id}/analyze")
     assert r.status_code == 404
 
@@ -270,7 +270,7 @@ def test_kick_analysis_requires_default_repo(client, logged_in: User, session):
         await session.commit()
         return row.id
 
-    app_id = asyncio.get_event_loop().run_until_complete(_seed())
+    app_id = asyncio.run(_seed())
     r = client.post(f"/feedback/apps/{app_id}/analyze")
     assert r.status_code == 400
 

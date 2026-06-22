@@ -236,7 +236,7 @@ def test_chats_require_ready_analysis(client, logged_in: User, session):
         await session.commit()
         return app.id
 
-    app_id = asyncio.get_event_loop().run_until_complete(_seed_no_analysis())
+    app_id = asyncio.run(_seed_no_analysis())
     r = client.get(f"/feedback/apps/{app_id}/chats")
     assert r.status_code == 400
 

@@ -103,7 +103,7 @@ def test_oauth_callback_returning_user_goes_to_dashboard(
         )
         await session.commit()
 
-    asyncio.get_event_loop().run_until_complete(_seed())
+    asyncio.run(_seed())
     _ = Decimal  # silence unused
 
     s = get_settings()

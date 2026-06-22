@@ -147,7 +147,7 @@ def test_rerun_requires_pending(client, pending_card, session, monkeypatch) -> N
         }
         await session.commit()
 
-    asyncio.get_event_loop().run_until_complete(_seed())
+    asyncio.run(_seed())
 
     r = client.post(f"/cards/{card.id}/rerun")
     assert r.status_code == 202

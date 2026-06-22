@@ -12,7 +12,7 @@ import logging
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -213,7 +213,7 @@ async def delete_rule(
     request: Request,
     session: AsyncSession = Depends(get_session),
     admin: User = Depends(require_role(Role.admin)),
-) -> None:
+) -> Response:
     row = await session.get(TriageRule, rule_id)
     if row is None or row.user_id != admin.id:
         raise HTTPException(status_code=404, detail="rule not found")
@@ -228,3 +228,4 @@ async def delete_rule(
     )
     await session.delete(row)
     await session.commit()
+    return Response()

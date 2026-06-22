@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import secrets
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy import func, select
@@ -162,5 +162,6 @@ async def me(user: User | None = Depends(get_optional_user)) -> MeResponse | Non
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-async def logout(request: Request, _: User = Depends(get_current_user)) -> None:
+async def logout(request: Request, _: User = Depends(get_current_user)) -> Response:
     request.session.clear()
+    return Response()

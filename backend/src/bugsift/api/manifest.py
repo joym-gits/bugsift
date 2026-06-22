@@ -18,7 +18,7 @@ import logging
 import secrets
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, HttpUrl
 from sqlalchemy import select
@@ -243,7 +243,7 @@ async def clear_app(
     request: Request,
     session: AsyncSession = Depends(get_session),
     admin: User = Depends(require_role(Role.admin)),
-) -> None:
+) -> Response:
     """Wipe the stored App. Useful for re-registering against a new tunnel."""
     row = (
         await session.execute(select(GithubAppCredentials).where(GithubAppCredentials.id == 1))
@@ -262,6 +262,7 @@ async def clear_app(
         await session.delete(row)
         await session.commit()
     app_config.clear_cache()
+    return Response()
 
 
 def _build_manifest(*, public_url: str, webhook_url: str, suffix: str) -> dict:

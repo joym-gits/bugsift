@@ -243,7 +243,7 @@ def test_compute_rejects_other_users_app(client, session):
         await session.commit()
         return row.id
 
-    other_id = asyncio.get_event_loop().run_until_complete(_seed())
+    other_id = asyncio.run(_seed())
     # No logged_in override here — request will 404.
     r = client.post(f"/feedback/apps/{other_id}/digests/current")
     assert r.status_code in (401, 404)

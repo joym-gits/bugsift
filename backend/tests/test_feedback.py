@@ -128,7 +128,7 @@ def test_cannot_bind_repo_user_does_not_own(
         await session.commit()
         return stranger_repo.id
 
-    stranger_repo_id = asyncio.get_event_loop().run_until_complete(_setup())
+    stranger_repo_id = asyncio.run(_setup())
     r = client.post(
         "/feedback/apps",
         json={"name": "bad", "default_repo_id": stranger_repo_id},

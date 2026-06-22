@@ -24,7 +24,7 @@ import re
 import secrets
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -817,7 +817,7 @@ async def clear_analysis_chats(
     app_id: int,
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
-) -> None:
+) -> Response:
     analysis, _ = await _owned_analysis(session, user, app_id)
     await session.execute(
         RepoAnalysisChatMessage.__table__.delete().where(
@@ -825,6 +825,7 @@ async def clear_analysis_chats(
         )
     )
     await session.commit()
+    return Response()
 
 
 def _serialize_analysis(analysis: RepoAnalysis) -> AnalysisResponse:
@@ -847,13 +848,14 @@ async def delete_feedback_app(
     app_id: int,
     session: AsyncSession = Depends(get_session),
     user: User = Depends(require_role(Role.triager)),
-) -> None:
+) -> Response:
     row = await session.get(FeedbackApp, app_id)
     if row is None or row.user_id != user.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="app not found")
     await session.delete(row)
     await session.commit()
     logger.info("feedback app deleted id=%s user_id=%s", app_id, user.id)
+    return Response()
 
 
 # ---------- helpers ----------

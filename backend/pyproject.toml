@@ -55,6 +55,9 @@ pythonpath = ["src"]
 markers = [
     "live: optional tests that hit real LLM providers (skipped without API keys)",
 ]
+filterwarnings = [
+    "ignore::starlette.exceptions.StarletteDeprecationWarning",
+]
 
 [tool.ruff]
 line-length = 100

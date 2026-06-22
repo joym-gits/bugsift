@@ -14,7 +14,7 @@ import logging
 from datetime import datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -198,12 +198,13 @@ async def delete_destination(
     dest_id: int,
     session: AsyncSession = Depends(get_session),
     user: User = Depends(require_role(Role.triager)),
-) -> None:
+) -> Response:
     row = await session.get(TicketDestination, dest_id)
     if row is None or row.user_id != user.id:
         raise HTTPException(status_code=404, detail="destination not found")
     await session.delete(row)
     await session.commit()
+    return Response()
 
 
 @router.get(
