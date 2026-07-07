@@ -52,8 +52,17 @@ where = ["src"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 pythonpath = ["src"]
+addopts = "--cov=src/bugsift --cov-report=json --cov-report=term-missing --cov-fail-under=75"
 markers = [
     "live: optional tests that hit real LLM providers (skipped without API keys)",
+    "unit: unit tests",
+    "integration: integration tests",
+    "api: API tests",
+    "database: database tests",
+    "auth: authentication tests",
+    "security: security tests",
+    "llm: LLM-related tests",
+    "performance: performance tests",
 ]
 filterwarnings = [
     "ignore::DeprecationWarning",
