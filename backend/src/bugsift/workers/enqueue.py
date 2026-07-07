@@ -22,7 +22,7 @@ from bugsift.workers import triage as triage_jobs
 
 
 def _queue(name: str) -> Queue:
-    connection = Redis.from_url(get_settings().redis_url)
+    connection = Redis.from_url(get_settings().redis_url, protocol=2)
     return Queue(name, connection=connection)
 
 

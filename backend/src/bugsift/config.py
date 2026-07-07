@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     github_app_webhook_secret: str = Field(default="", alias="GITHUB_APP_WEBHOOK_SECRET")
     github_app_private_key: str = Field(default="", alias="GITHUB_APP_PRIVATE_KEY")
     github_app_private_key_path: str = Field(default="", alias="GITHUB_APP_PRIVATE_KEY_PATH")
+    oauth_callback_url_override: str = Field(default="", alias="BUGSIFT_OAUTH_CALLBACK_URL")
 
     @property
     def oauth_configured(self) -> bool:
@@ -42,6 +43,9 @@ class Settings(BaseSettings):
 
     @property
     def oauth_callback_url(self) -> str:
+        # Allow explicit override for local dev where backend and frontend are separate.
+        if self.oauth_callback_url_override:
+            return self.oauth_callback_url_override
         return f"{self.public_url.rstrip('/')}/api/auth/github/callback"
 
 

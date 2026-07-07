@@ -58,7 +58,11 @@ async def stop() -> None:
 async def _loop() -> None:
     settings = get_settings()
     try:
-        redis = aioredis.from_url(settings.redis_url, decode_responses=True)
+        redis = aioredis.from_url(
+            settings.redis_url,
+            decode_responses=True,
+            protocol=2,
+        )
     except Exception:  # pragma: no cover - test resilience
         logger.exception("sla-watcher: failed to connect to redis; skipping")
         return

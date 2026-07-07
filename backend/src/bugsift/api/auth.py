@@ -131,21 +131,22 @@ async def github_callback(
 
 
 async def _post_login_target(session: AsyncSession, user_id: int) -> str:
+    settings = get_settings()
     install_count = (
         await session.execute(
             select(Installation.id).where(Installation.user_id == user_id).limit(1)
         )
     ).first()
     if install_count is None:
-        return "/onboarding"
+        return f"{settings.public_url.rstrip('/')}/onboarding"
     key_count = (
         await session.execute(
             select(UserApiKey.id).where(UserApiKey.user_id == user_id).limit(1)
         )
     ).first()
     if key_count is None:
-        return "/onboarding"
-    return "/dashboard"
+        return f"{settings.public_url.rstrip('/')}/onboarding"
+    return f"{settings.public_url.rstrip('/')}/dashboard"
 
 
 @router.get("/me", response_model=MeResponse | None)

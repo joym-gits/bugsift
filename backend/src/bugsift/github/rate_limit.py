@@ -28,7 +28,11 @@ _redis: Redis | None = None
 def _client() -> Redis:
     global _redis
     if _redis is None:
-        _redis = Redis.from_url(get_settings().redis_url, decode_responses=True)
+        _redis = Redis.from_url(
+            get_settings().redis_url,
+            decode_responses=True,
+            protocol=2,
+        )
     return _redis
 
 

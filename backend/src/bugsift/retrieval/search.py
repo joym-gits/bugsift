@@ -1,16 +1,19 @@
-"""pgvector cosine-distance search over per-repo embeddings.
+"""Cosine-distance search over per-repo embeddings.
 
-``<=>`` is pgvector's cosine-distance operator; we return ``similarity = 1 -
-distance`` so a higher number is a better match, matching the brief's
-language around thresholds.
+The local development stack stores embeddings as JSON arrays so it can
+run on a plain PostgreSQL install without the pgvector extension. We
+rank candidates in Python, which is fast enough for the small candidate
+sets this project uses during local triage.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import text
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from bugsift.db.models import CodeChunk, IssueEmbedding
 
 
 @dataclass(frozen=True)
@@ -51,31 +54,27 @@ async def nearest_issues(
     min_similarity: float = 0.0,
 ) -> list[SimilarIssue]:
     col = _column_for_dim(dim)
-    vector_literal = _pg_vector_literal(query_vector)
-    exclusion_sql = ""
-    params = {"repo_id": repo_id, "limit": limit, "min_sim": min_similarity, "vec": vector_literal}
-    if exclude_issue_number is not None:
-        exclusion_sql = "AND issue_number <> :exclude_number"
-        params["exclude_number"] = exclude_issue_number
-
-    sql = text(
-        f"""
-        SELECT issue_number, title, body_excerpt,
-               1 - ({col} <=> CAST(:vec AS vector)) AS similarity
-        FROM issue_embeddings
-        WHERE repo_id = :repo_id
-          AND {col} IS NOT NULL
-          {exclusion_sql}
-        ORDER BY {col} <=> CAST(:vec AS vector)
-        LIMIT :limit
-        """
+    stmt = select(
+        IssueEmbedding.issue_number,
+        IssueEmbedding.title,
+        IssueEmbedding.body_excerpt,
+        getattr(IssueEmbedding, col),
+    ).where(
+        IssueEmbedding.repo_id == repo_id,
+        getattr(IssueEmbedding, col).is_not(None),
     )
-    rows = (await session.execute(sql, params)).all()
-    return [
-        SimilarIssue(r.issue_number, r.title, r.body_excerpt, float(r.similarity))
-        for r in rows
-        if float(r.similarity) >= min_similarity
-    ]
+    if exclude_issue_number is not None:
+        stmt = stmt.where(IssueEmbedding.issue_number != exclude_issue_number)
+    rows = (await session.execute(stmt)).all()
+    scored: list[SimilarIssue] = []
+    for issue_number, title, body_excerpt, candidate_vector in rows:
+        if candidate_vector is None:
+            continue
+        similarity = _cosine(query_vector, list(candidate_vector))
+        if similarity >= min_similarity:
+            scored.append(SimilarIssue(int(issue_number), title, body_excerpt, similarity))
+    scored.sort(key=lambda item: item.similarity, reverse=True)
+    return scored[:limit]
 
 
 async def nearest_chunks(
@@ -88,30 +87,34 @@ async def nearest_chunks(
     min_similarity: float = 0.0,
 ) -> list[SimilarChunk]:
     col = _column_for_dim(dim)
-    vector_literal = _pg_vector_literal(query_vector)
-    sql = text(
-        f"""
-        SELECT file_path, start_line, end_line, content,
-               1 - ({col} <=> CAST(:vec AS vector)) AS similarity
-        FROM code_chunks
-        WHERE repo_id = :repo_id
-          AND {col} IS NOT NULL
-        ORDER BY {col} <=> CAST(:vec AS vector)
-        LIMIT :limit
-        """
+    stmt = select(
+        CodeChunk.file_path,
+        CodeChunk.start_line,
+        CodeChunk.end_line,
+        CodeChunk.content,
+        getattr(CodeChunk, col),
+    ).where(
+        CodeChunk.repo_id == repo_id,
+        getattr(CodeChunk, col).is_not(None),
     )
-    rows = (
-        await session.execute(
-            sql, {"repo_id": repo_id, "limit": limit, "vec": vector_literal}
-        )
-    ).all()
-    return [
-        SimilarChunk(
-            r.file_path, int(r.start_line), int(r.end_line), r.content, float(r.similarity)
-        )
-        for r in rows
-        if float(r.similarity) >= min_similarity
-    ]
+    rows = (await session.execute(stmt)).all()
+    scored: list[SimilarChunk] = []
+    for file_path, start_line, end_line, content, candidate_vector in rows:
+        if candidate_vector is None:
+            continue
+        similarity = _cosine(query_vector, list(candidate_vector))
+        if similarity >= min_similarity:
+            scored.append(
+                SimilarChunk(
+                    file_path,
+                    int(start_line),
+                    int(end_line),
+                    content,
+                    similarity,
+                )
+            )
+    scored.sort(key=lambda item: item.similarity, reverse=True)
+    return scored[:limit]
 
 
 async def chunks_containing_tokens(
@@ -232,8 +235,18 @@ async def chunks_for_paths(
     return out
 
 
-def _pg_vector_literal(values: list[float]) -> str:
-    """Render a Python list as pgvector's textual format: ``[0.1, 0.2, ...]``."""
-    return "[" + ",".join(f"{v:.6f}" for v in values) + "]"
+def _cosine(a: list[float], b: list[float]) -> float:
+    if not a or not b or len(a) != len(b):
+        return 0.0
+    dot = 0.0
+    norm_a = 0.0
+    norm_b = 0.0
+    for x, y in zip(a, b):
+        dot += x * y
+        norm_a += x * x
+        norm_b += y * y
+    if norm_a == 0.0 or norm_b == 0.0:
+        return 0.0
+    return dot / ((norm_a ** 0.5) * (norm_b ** 0.5))
 
 

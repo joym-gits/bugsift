@@ -101,6 +101,8 @@ def create_app() -> FastAPI:
         same_site="lax",
         https_only=settings.env == "production",
         session_cookie="bugsift_session",
+        # Allow cookie to be sent to both frontend and backend on localhost
+        domain=".localhost" if settings.env == "development" else None,
     )
 
     app.add_middleware(
@@ -144,6 +146,11 @@ def create_app() -> FastAPI:
         return {"status": "ok", "version": __version__}
 
     app.include_router(auth_router)
+    # Also expose the same auth endpoints under the `/api` prefix so that
+    # frontend-origin callback URLs like
+    # `https://<frontend>/api/auth/github/callback` reach the backend
+    # directly in local/dev setups where the frontend does not proxy `/api`.
+    app.include_router(auth_router, prefix="/api")
     app.include_router(keys_router)
     app.include_router(webhooks_router)
     app.include_router(github_router)

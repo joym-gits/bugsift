@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     BigInteger,
     Boolean,
@@ -21,7 +20,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from bugsift.db.types import JSONB
 
-SUPPORTED_EMBEDDING_DIMS = (1536, 768)
+SUPPORTED_EMBEDDING_DIMS = (1536, 768, 384)
 
 
 class Base(DeclarativeBase):
@@ -262,9 +261,9 @@ class CodeChunk(Base):
     # Exactly one of the three embedding columns is populated per row; the
     # repo's embedding_dim tells callers which to use. The 384 column hosts
     # the built-in ``local`` provider (fastembed / bge-small-en-v1.5).
-    embedding_1536: Mapped[list[float] | None] = mapped_column(Vector(1536), nullable=True)
-    embedding_768: Mapped[list[float] | None] = mapped_column(Vector(768), nullable=True)
-    embedding_384: Mapped[list[float] | None] = mapped_column(Vector(384), nullable=True)
+    embedding_1536: Mapped[list[float] | None] = mapped_column(JSONB, nullable=True)
+    embedding_768: Mapped[list[float] | None] = mapped_column(JSONB, nullable=True)
+    embedding_384: Mapped[list[float] | None] = mapped_column(JSONB, nullable=True)
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     indexed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
@@ -278,9 +277,9 @@ class IssueEmbedding(Base):
     issue_number: Mapped[int] = mapped_column(Integer, nullable=False)
     title: Mapped[str] = mapped_column(Text, nullable=False)
     body_excerpt: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    embedding_1536: Mapped[list[float] | None] = mapped_column(Vector(1536), nullable=True)
-    embedding_768: Mapped[list[float] | None] = mapped_column(Vector(768), nullable=True)
-    embedding_384: Mapped[list[float] | None] = mapped_column(Vector(384), nullable=True)
+    embedding_1536: Mapped[list[float] | None] = mapped_column(JSONB, nullable=True)
+    embedding_768: Mapped[list[float] | None] = mapped_column(JSONB, nullable=True)
+    embedding_384: Mapped[list[float] | None] = mapped_column(JSONB, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
@@ -417,7 +416,7 @@ class FeedbackReport(Base):
     # Embedding of the report body, computed at triage time using the
     # built-in local provider (384-dim / bge-small-en-v1.5). Used to
     # collapse near-duplicate user reports into one card.
-    embedding_384: Mapped[list[float] | None] = mapped_column(Vector(384), nullable=True)
+    embedding_384: Mapped[list[float] | None] = mapped_column(JSONB, nullable=True)
     # Client IP at ingest time — kept short-term for rate limiting and
     # abuse forensics only; no long-term analytics use.
     ingest_ip: Mapped[str | None] = mapped_column(String(64), nullable=True)

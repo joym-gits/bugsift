@@ -11,7 +11,6 @@ from typing import Union
 
 import sqlalchemy as sa
 from alembic import op
-from pgvector.sqlalchemy import Vector
 
 revision: str = "c3d7a9b1e2f5"
 down_revision: Union[str, None] = "b2e9f1a8c4d6"
@@ -20,16 +19,8 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "feedback_reports", sa.Column("embedding_384", Vector(384), nullable=True)
-    )
-    op.execute(
-        "CREATE INDEX ix_feedback_reports_embedding_384 ON feedback_reports "
-        "USING ivfflat (embedding_384 vector_cosine_ops) WITH (lists = 100) "
-        "WHERE embedding_384 IS NOT NULL"
-    )
+    op.add_column("feedback_reports", sa.Column("embedding_384", sa.JSON(), nullable=True))
 
 
 def downgrade() -> None:
-    op.execute("DROP INDEX IF EXISTS ix_feedback_reports_embedding_384")
     op.drop_column("feedback_reports", "embedding_384")

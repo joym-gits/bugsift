@@ -64,7 +64,7 @@ def _local_webhook_target() -> str:
 async def _redis() -> Redis:
     global _redis_client
     if _redis_client is None:
-        _redis_client = Redis.from_url(get_settings().redis_url)
+        _redis_client = Redis.from_url(get_settings().redis_url, protocol=2)
     return _redis_client
 
 

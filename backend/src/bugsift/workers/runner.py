@@ -22,7 +22,7 @@ QUEUES = ["default", "triage", "indexing"]
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     settings = get_settings()
-    connection = Redis.from_url(settings.redis_url)
+    connection = Redis.from_url(settings.redis_url, protocol=2)
     queues = [Queue(name, connection=connection) for name in QUEUES]
     logger.info("starting bugsift worker on queues=%s", QUEUES)
     Worker(queues, connection=connection).work(with_scheduler=False)
