@@ -53,29 +53,6 @@ jobs:
         with:
           context: ./backend
           platforms: linux/amd64,linux/arm64
-          push: false
-          load: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=backend
-          cache-to: type=gha,scope=backend,mode=max
-          outputs: type=docker,dest=/tmp/image.tar
-      - name: scan backend image for vulnerabilities
-        uses: aquasecurity/trivy-action@master
-        with:
-          input: /tmp/image.tar
-          format: sarif
-          output: backend-trivy-results.sarif
-      - name: upload backend trivy results
-        uses: github/codeql-action/upload-sarif@v2
-        if: always()
-        with:
-          sarif_file: backend-trivy-results.sarif
-          category: trivy-backend
-      - uses: docker/build-push-action@v5
-        with:
-          context: ./backend
-          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -104,29 +81,6 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=sha,prefix=sha-
             type=raw,value=latest,enable={{is_default_branch}}
-      - uses: docker/build-push-action@v5
-        with:
-          context: ./frontend
-          platforms: linux/amd64,linux/arm64
-          push: false
-          load: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=frontend
-          cache-to: type=gha,scope=frontend,mode=max
-          outputs: type=docker,dest=/tmp/image.tar
-      - name: scan frontend image for vulnerabilities
-        uses: aquasecurity/trivy-action@master
-        with:
-          input: /tmp/image.tar
-          format: sarif
-          output: frontend-trivy-results.sarif
-      - name: upload frontend trivy results
-        uses: github/codeql-action/upload-sarif@v2
-        if: always()
-        with:
-          sarif_file: frontend-trivy-results.sarif
-          category: trivy-frontend
       - uses: docker/build-push-action@v5
         with:
           context: ./frontend
