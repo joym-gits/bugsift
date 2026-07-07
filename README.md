@@ -75,15 +75,21 @@ curl -fsSL https://github.com/joym-gits/bugsift/releases/latest/download/install
 # Installer generates secrets, pulls pre-built images from GHCR,
 # runs migrations, and prints your dashboard URL + bootstrap token.
 
-# Open the dashboard:
-open http://localhost:8080
+# Open the dashboard (on your server):
+# http://your-domain.com:8080
+
+# For production, set your domain and enable TLS:
+export BUGSIFT_DOMAIN=bugsift.yourdomain.com
+curl -fsSL https://github.com/joym-gits/bugsift/releases/latest/download/install.sh | bash
 
 # Pin a specific release for reproducibility:
-BUGSIFT_IMAGE_TAG=v0.1.0 \
-  curl -fsSL https://github.com/joym-gits/bugsift/releases/download/v0.1.0/install.sh | bash
+BUGSIFT_IMAGE_TAG=v0.2.0 \
+  curl -fsSL https://github.com/joym-gits/bugsift/releases/download/v0.2.0/install.sh | bash
 ```
 
-Full walkthrough including upgrades, backups, and Caddy-backed TLS:
+**Access via your domain:** Users access bugsift at their own domain (e.g., `bugsift.mycompany.com`) after deployment to their infrastructure.
+
+Full walkthrough including upgrades, backups, and TLS setup:
 📋 [Self-host guide](deploy/README.md).
 
 ## ✨ What's new
