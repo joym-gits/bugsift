@@ -84,8 +84,8 @@ BUGSIFT_DOMAIN=bugsift.yourdomain.com BUGSIFT_ACME_EMAIL=you@yourdomain.com \
   curl -fsSL https://github.com/joym-gits/bugsift/releases/latest/download/install.sh | bash
 
 # Pin a specific release for reproducibility:
-BUGSIFT_IMAGE_TAG=v0.2.0 \
-  curl -fsSL https://github.com/joym-gits/bugsift/releases/download/v0.2.0/install.sh | bash
+BUGSIFT_IMAGE_TAG=v0.2.1 \
+  curl -fsSL https://github.com/joym-gits/bugsift/releases/download/v0.2.1/install.sh | bash
 ```
 
 **Access via your domain:** Users access bugsift at their own domain (e.g., `bugsift.mycompany.com`) after deployment to their infrastructure.
@@ -98,6 +98,17 @@ Full walkthrough including upgrades, backups, and TLS setup:
 See 📋 [Release notes](https://github.com/joym-gits/bugsift/releases)
 for every version. Highlights from recent drops:
 
+- 🔗 **Repo analysis → Triage** — a dedicated findings pass reviews
+  the codebase for concrete bugs/security/perf/reliability issues and
+  files them straight onto the triage board (`source: analysis`),
+  deduplicated across re-runs.
+- 📡 **Monitoring integration** — generic-provider event ingest
+  (Sentry, Datadog, or a custom sender) correlates production errors
+  against existing triage cards by file path, and auto-resolves once
+  the correlated card is approved or skipped.
+- 💰 **Usage tracking** — per-call token/cost/duration logging across
+  the analysis and triage pipelines, with `/usage/history` and
+  `/usage/by-run` breakdowns per repo.
 - 🧠 **Feedback-loop learning** — every approve / skip / edit
   becomes retrieval context so triage compounds with your team's
   decisions.
@@ -160,6 +171,21 @@ for every version. Highlights from recent drops:
 - **Metrics dashboard** — throughput, LLM cost by provider / model /
   step, approval rate, PII scrub rate, SLA compliance — all in one
   admin page.
+- **Repo analysis findings** — a hierarchical analyzer maps the
+  codebase, then a separate findings pass reviews it for concrete
+  bugs, security issues, performance problems, and reliability risks;
+  each finding materializes as a triage card (`source: analysis`) with
+  its own severity, deduplicated by a content fingerprint so re-runs
+  don't spam duplicates.
+- **Monitoring ingest + correlation** — a generic, provider-agnostic
+  webhook (token-authenticated, rate-limited) accepts production error
+  events from Sentry, Datadog, or a custom sender, and correlates them
+  against existing triage cards by overlapping file paths. Approving
+  or skipping a correlated card marks the monitoring event resolved.
+- **Usage tracking** — every analysis and triage LLM call logs
+  tokens, cost, and duration; `/usage/history` gives a monthly
+  time series per repo, `/usage/by-run` breaks down cost/duration per
+  analysis run and pipeline step.
 
 ## 🛡️ Security
 
@@ -224,6 +250,7 @@ steps in a fixed order. Full text walkthrough:
 
 ## 🧱 Self-host guide
 
+- 📋 [Full deployment walkthrough](DEPLOY_GUIDE.md) — domain setup, backups, upgrades, troubleshooting
 - 📋 [Install + upgrade + backup](deploy/README.md)
 - 📋 [Caddy + Let's Encrypt TLS](deploy/docker-compose.caddy.yml)
 - 📋 [GitHub App registration](docs/installation.md)
