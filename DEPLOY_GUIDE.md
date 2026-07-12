@@ -1,4 +1,4 @@
-# BUGSIFT v0.2.0 Self-Hosted Deployment Guide
+# BUGSIFT v0.2.1 Self-Hosted Deployment Guide
 
 **Self-hosted by design.** This guide walks you through deploying bugsift to your infrastructure and accessing it via your own domain.
 
@@ -57,8 +57,8 @@ newgrp docker
 
 ```bash
 # Deploy with default settings (localhost access for testing)
-BUGSIFT_IMAGE_TAG=v0.2.0 \
-  curl -fsSL https://github.com/joym-gits/bugsift/releases/download/v0.2.0/install.sh | bash
+BUGSIFT_IMAGE_TAG=v0.2.1 \
+  curl -fsSL https://github.com/joym-gits/bugsift/releases/download/v0.2.1/install.sh | bash
 
 # After successful installation, you'll see:
 # ✅ Generated .env with secure secrets
@@ -205,9 +205,10 @@ docker run --rm -v bugsift_postgres_data:/data \
 ## Upgrading to New Versions
 
 ```bash
-# Update to a new version:
-BUGSIFT_IMAGE_TAG=v0.3.0 \
-  curl -fsSL https://github.com/joym-gits/bugsift/releases/download/v0.3.0/install.sh | bash
+# Substitute the target tag from https://github.com/joym-gits/bugsift/releases
+# for both occurrences below — this example pins the current release:
+BUGSIFT_IMAGE_TAG=v0.2.1 \
+  curl -fsSL https://github.com/joym-gits/bugsift/releases/download/v0.2.1/install.sh | bash
 
 # The installer will:
 # ✅ Pull new images
