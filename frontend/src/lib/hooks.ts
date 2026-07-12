@@ -276,7 +276,8 @@ export type Card = {
   repo_full_name: string;
   repo_default_branch?: string | null;
   issue_number: number | null;
-  source?: "github" | "feedback";
+  source?: "github" | "feedback" | "analysis";
+  finding_category?: string | null;
   github_issue_number?: number | null;
   github_issue_url?: string | null;
   ticket_provider?: "github" | "jira" | "linear" | null;
@@ -352,6 +353,80 @@ export function useMonthlyUsage(enabled: boolean) {
     queryKey: ["usage", "this-month"],
     queryFn: () => apiFetch<MonthlyUsage>("/usage/this-month"),
     enabled,
+  });
+}
+
+export type UsageHistoryPoint = {
+  month_start_utc: string;
+  repo_id: number;
+  repo_full_name: string;
+  spent_usd: number;
+};
+
+export function useUsageHistory(enabled: boolean, months = 6) {
+  return useQuery<UsageHistoryPoint[]>({
+    queryKey: ["usage", "history", months],
+    queryFn: () => apiFetch<UsageHistoryPoint[]>(`/usage/history?months=${months}`),
+    enabled,
+  });
+}
+
+export type UsageRun = {
+  analysis_id: number;
+  repo_id: number;
+  branch: string;
+  status: string;
+  started_at: string | null;
+  generated_at: string | null;
+  duration_ms: number | null;
+  total_cost_usd: number;
+  call_count: number;
+  by_step: Record<string, number>;
+};
+
+export function useUsageByRun(repoId: number | null, enabled: boolean) {
+  return useQuery<UsageRun[]>({
+    queryKey: ["usage", "by-run", repoId],
+    queryFn: () => apiFetch<UsageRun[]>(`/usage/by-run?repo_id=${repoId}`),
+    enabled: enabled && repoId !== null,
+  });
+}
+
+export type MonitoringEvent = {
+  id: number;
+  provider: string;
+  level: string | null;
+  message: string;
+  file_paths: string[] | null;
+  occurrence_count: number;
+  correlated_card_id: number | null;
+  resolved_at: string | null;
+  resolution_status: string | null;
+  created_at: string;
+};
+
+export function useMonitoringEvents(repoId: number | null, enabled: boolean) {
+  return useQuery<MonitoringEvent[]>({
+    queryKey: ["monitoring", "events", repoId],
+    queryFn: () => apiFetch<MonitoringEvent[]>(`/monitoring/events?repo_id=${repoId}`),
+    enabled: enabled && repoId !== null,
+  });
+}
+
+export type MonitorToken = {
+  id: number;
+  repo_id: number;
+  token: string;
+  created_at: string;
+};
+
+export function useCreateMonitorToken() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (repoId: number) =>
+      apiFetch<MonitorToken>(`/monitoring/repos/${repoId}/tokens`, { method: "POST" }),
+    onSuccess: (_data, repoId) =>
+      qc.invalidateQueries({ queryKey: ["monitoring", "events", repoId] }),
   });
 }
 

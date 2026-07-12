@@ -210,6 +210,15 @@ class TriageCard(Base):
     # corrections existed; positive = the pill on the tile shows the
     # loop is working.
     corrections_applied_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # ``source='analysis'`` cards only: deterministic fingerprint of
+    # (repo_id, branch, finding title, primary file) so re-running
+    # analysis on unchanged code doesn't spam duplicate cards. See
+    # ``uq_repo_finding_key`` partial index (scoped to source='analysis',
+    # mirroring ``uq_repo_github_issue``'s scoping to source='github').
+    finding_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # ``bug|security|performance|maintainability|reliability`` — set
+    # directly by the findings LLM pass for source='analysis' cards.
+    finding_category: Mapped[str | None] = mapped_column(String(32), nullable=True)
     raw_payload_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -291,11 +300,20 @@ class LLMUsage(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     repo_id: Mapped[int] = mapped_column(ForeignKey("repos.id", ondelete="CASCADE"), nullable=False, index=True)
     card_id: Mapped[int | None] = mapped_column(ForeignKey("triage_cards.id", ondelete="SET NULL"), nullable=True)
+    # Set for rows produced by the repo-analysis pipeline (file/dir
+    # summary, synthesis, findings, Q&A calls) — the correct join key
+    # for per-run cost/duration since one analysis run's findings pass
+    # can produce N triage cards, so attributing its cost to any one
+    # card would be arbitrary.
+    analysis_id: Mapped[int | None] = mapped_column(
+        ForeignKey("repo_analyses.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     provider: Mapped[str] = mapped_column(String(32), nullable=False)
     model: Mapped[str] = mapped_column(String(128), nullable=False)
     prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     completion_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     cost_usd: Mapped[float] = mapped_column(Numeric(10, 6), nullable=False, default=0)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     step_name: Mapped[str] = mapped_column(String(32), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
 
@@ -371,6 +389,11 @@ class RepoAnalysis(Base):
     mermaid_src: Mapped[str | None] = mapped_column(Text, nullable=True)
     overrides_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     error_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Set when status flips to "running" — pairs with generated_at to
+    # derive job duration for the usage-history endpoints.
+    started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     generated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -632,7 +655,13 @@ class CardCorrection(Base):
 
     __tablename__ = "card_corrections"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    # BigInteger on Postgres (unchanged DDL from the original migration);
+    # SQLite gets a plain INTEGER via with_variant so it aliases rowid
+    # and actually autoincrements — BigInteger's SQLite compilation
+    # (BIGINT) doesn't get that treatment and NOT NULLs on insert.
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True
+    )
     repo_id: Mapped[int] = mapped_column(
         ForeignKey("repos.id", ondelete="CASCADE"), nullable=False, index=True
     )
@@ -695,7 +724,10 @@ class AuditEvent(Base):
 
     __tablename__ = "audit_events"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    # See CardCorrection.id — same Postgres-BigInteger/SQLite-Integer split.
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True
+    )
     actor_user_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
@@ -713,3 +745,76 @@ class AuditEvent(Base):
         nullable=False,
         index=True,
     )
+
+
+class MonitoringIngestToken(Base):
+    """Opaque per-repo bearer token for the generic monitoring-event
+    ingest endpoint. Same shape as :class:`FeedbackApp`'s ``public_key``
+    — a static token is the lowest common denominator every provider
+    (Sentry, Datadog, custom) can send in an outbound-webhook header,
+    since each provider signs its own payload differently.
+    """
+
+    __tablename__ = "monitoring_ingest_tokens"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    repo_id: Mapped[int] = mapped_column(
+        ForeignKey("repos.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    token: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class MonitoringEvent(Base):
+    """A production/runtime error event ingested from an external
+    monitoring provider. Idempotent on ``(repo_id, provider,
+    external_event_id)`` — repeat sends of the same provider event bump
+    ``occurrence_count`` instead of duplicating rows. ``correlated_card_id``
+    is set at ingest time by :func:`bugsift.monitoring.correlator.correlate_event`
+    matching ``file_paths_json`` against existing cards' ``suspected_files_json``.
+    """
+
+    __tablename__ = "monitoring_events"
+    __table_args__ = (
+        UniqueConstraint(
+            "repo_id", "provider", "external_event_id", name="uq_monitoring_event_external_id"
+        ),
+    )
+
+    # See CardCorrection.id — same Postgres-BigInteger/SQLite-Integer split.
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True
+    )
+    repo_id: Mapped[int] = mapped_column(
+        ForeignKey("repos.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    ingest_token_id: Mapped[int | None] = mapped_column(
+        ForeignKey("monitoring_ingest_tokens.id", ondelete="SET NULL"), nullable=True
+    )
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    external_event_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    level: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    file_paths_json: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
+    occurrence_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    first_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    raw_payload_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    correlated_card_id: Mapped[int | None] = mapped_column(
+        ForeignKey("triage_cards.id", ondelete="SET NULL"), nullable=True
+    )
+    ingest_ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    )
+    # Set by bugsift.monitoring.correlator.mark_resolved_for_card when the
+    # correlated TriageCard reaches a terminal status (approved/skipped) —
+    # closes the analysis -> triage -> monitoring visibility loop.
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolution_status: Mapped[str | None] = mapped_column(String(32), nullable=True)

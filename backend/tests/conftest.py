@@ -35,22 +35,10 @@ from bugsift.api.main import create_app
 from bugsift.config import get_settings
 from bugsift.db.models import (
     Base,
-    FeedbackApp,
-    FeedbackDigest,
-    FeedbackReport,
-    GithubAppCredentials,
     Installation,
-    LLMUsage,
-    PushEvent,
-    SlackDestination,
     Repo,
-    RepoAnalysis,
-    RepoAnalysisChatMessage,
-    RepoConfig,
-    TicketDestination,
     TriageCard,
     User,
-    UserApiKey,
 )
 from bugsift.github import config as github_app_config
 from bugsift.github import smee as github_smee
@@ -121,30 +109,18 @@ def fake_data():
 
 @pytest_asyncio.fixture
 async def db_engine():
-    """Create fresh in-memory SQLite database per test."""
+    """Create fresh in-memory SQLite database per test.
+
+    Creates every table in the ORM metadata rather than a manually
+    curated subset — the curated list previously here silently drifted
+    behind new models (missing ``audit_events``/``card_corrections``/
+    etc.), causing "no such table" failures in any test that touched
+    a code path writing to one of the omitted tables. An in-memory
+    per-test DB has no cost to creating tables a given test doesn't use.
+    """
     engine = create_async_engine(TEST_DB_URL, future=True)
     async with engine.begin() as conn:
-        await conn.run_sync(
-            Base.metadata.create_all,
-            tables=[
-                User.__table__,
-                UserApiKey.__table__,
-                Installation.__table__,
-                Repo.__table__,
-                RepoConfig.__table__,
-                TriageCard.__table__,
-                LLMUsage.__table__,
-                GithubAppCredentials.__table__,
-                FeedbackApp.__table__,
-                FeedbackReport.__table__,
-                FeedbackDigest.__table__,
-                RepoAnalysis.__table__,
-                RepoAnalysisChatMessage.__table__,
-                PushEvent.__table__,
-                SlackDestination.__table__,
-                TicketDestination.__table__,
-            ],
-        )
+        await conn.run_sync(Base.metadata.create_all)
     yield engine
     await engine.dispose()
 

@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 
 from bugsift.analysis.analyzer import analyze_repo
+from bugsift.analysis.findings_cards import write_finding_cards
 from bugsift.db.models import (
     FeedbackApp,
     Installation,
@@ -26,6 +27,11 @@ from bugsift.db.models import (
 from bugsift.db.session import SessionLocal
 from bugsift.llm.factory import get_provider_for_user
 from bugsift.security import crypto
+from bugsift.workers.card_pipeline_shared import (
+    apply_routing_rules,
+    fire_slack_events,
+    record_llm_usage,
+)
 from bugsift.workers.triage import DEFAULT_PROVIDER
 
 logger = logging.getLogger(__name__)
@@ -66,12 +72,13 @@ async def _analyze_for_app(feedback_app_id: int) -> None:
         ).scalar_one_or_none()
         if analysis is None:
             analysis = RepoAnalysis(
-                repo_id=repo.id, branch=branch, status="running"
+                repo_id=repo.id, branch=branch, status="running", started_at=datetime.now(UTC)
             )
             session.add(analysis)
         else:
             analysis.status = "running"
             analysis.error_detail = None
+            analysis.started_at = datetime.now(UTC)
         await session.commit()
         await session.refresh(analysis)
 
@@ -117,13 +124,30 @@ async def _analyze_for_app(feedback_app_id: int) -> None:
         analysis.status = "ready"
         analysis.error_detail = None
         analysis.generated_at = datetime.now(UTC)
+
+        cards = await write_finding_cards(
+            session, repo=repo, branch=branch, findings=result.findings
+        )
+        await session.flush()  # populate card.id for rules/usage below
+        rule_outcomes = [
+            await apply_routing_rules(session, card, repo, log_label=" (analysis)")
+            for card in cards
+        ]
+        record_llm_usage(
+            session, repo_id=repo.id, card_id=None, analysis_id=analysis.id, calls=result.llm_calls
+        )
+
         await session.commit()
+        for card, rule_outcome in zip(cards, rule_outcomes):
+            fire_slack_events(card, regression_suspects=[], rule_outcome=rule_outcome)
         logger.info(
-            "analyze_for_app: ready repo_id=%s branch=%s files=%d dirs=%d",
+            "analyze_for_app: ready repo_id=%s branch=%s files=%d dirs=%d findings=%d cards=%d",
             repo.id,
             branch,
             len(result.files),
             len(result.directories),
+            len(result.findings),
+            len(cards),
         )
 
 

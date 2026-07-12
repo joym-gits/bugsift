@@ -23,7 +23,6 @@ from bugsift.db.models import (
     FeedbackApp,
     FeedbackReport,
     Installation,
-    LLMUsage,
     Repo,
     RepoConfig,
     TriageCard,
@@ -36,6 +35,11 @@ from bugsift.llm.local_embed import LocalEmbeddingProvider
 from bugsift.retrieval.embedding import EmbeddingUnavailable, get_embedder_for_repo
 from bugsift.security import crypto
 from bugsift.usage import budget_status_for_repo
+from bugsift.workers.card_pipeline_shared import (
+    apply_routing_rules as _apply_routing_rules,
+    fire_slack_events as _fire_slack_events_shared,
+    record_llm_usage as _record_llm_usage_shared,
+)
 from bugsift.workers.triage import DEFAULT_PROVIDER, _config_dict, _reproduce_languages_from_config
 
 logger = logging.getLogger(__name__)
@@ -212,67 +216,13 @@ async def _process_feedback_report(report_id: int) -> None:
         card = _write_card(session, state, report=report)
         await session.flush()
         report.card_id = card.id
-        _record_llm_usage(session, state, card_id=card.id)
-        rule_outcome = await _apply_routing_rules(session, card, repo)
+        _record_llm_usage_shared(session, repo_id=state.repo_id, card_id=card.id, calls=state.llm_calls)
+        rule_outcome = await _apply_routing_rules(session, card, repo, log_label=" (feedback)")
         await session.commit()
 
-        _fire_slack_events(card, state, rule_outcome)
-
-
-def _fire_slack_events(card, state, rule_outcome=None) -> None:
-    """Mirror of :func:`bugsift.workers.triage._fire_slack_events` for
-    the feedback pipeline. Dedup merges (where we attached a report to
-    an existing card) don't reach here — they return before card write.
-    """
-    from bugsift.workers import enqueue as enqueue_jobs
-
-    try:
-        enqueue_jobs.enqueue_slack_notification(card.id, "new_card")
-        if state.regression_suspects:
-            enqueue_jobs.enqueue_slack_notification(card.id, "regression")
-        if rule_outcome is not None:
-            for dest_id in rule_outcome.notify_slack_destination_ids:
-                enqueue_jobs.enqueue_slack_notification(
-                    card.id, "new_card", destination_id=dest_id
-                )
-    except Exception:
-        logger.exception("slack: enqueue failed for card_id=%s; continuing", card.id)
-
-
-async def _apply_routing_rules(session, card, repo):
-    """Delegate to the shared engine; mirrors the logic in
-    :mod:`bugsift.workers.triage`. Mutations are additive so the
-    LLM-suggested assignees / labels aren't thrown away."""
-    from bugsift.rules import engine as rules_engine
-
-    try:
-        outcome = await rules_engine.evaluate_async(session, card, repo=repo)
-    except Exception:
-        logger.exception("rules engine failed for card_id=%s; continuing", card.id)
-        return None
-    if not outcome.any:
-        return outcome
-    if outcome.add_assignees:
-        current = list(card.suggested_assignees_json or [])
-        for login in outcome.add_assignees:
-            if login not in current:
-                current.append(login)
-        card.suggested_assignees_json = current or None
-    if outcome.add_labels:
-        current = list(card.proposed_labels_json or [])
-        for label in outcome.add_labels:
-            if label not in current:
-                current.append(label)
-        card.proposed_labels_json = current or None
-    if outcome.sla_minutes is not None:
-        card.sla_minutes = outcome.sla_minutes
-    logger.info(
-        "triage_rules matched (feedback) card_id=%s rules=%s sla=%s",
-        card.id,
-        outcome.matched_rule_ids,
-        outcome.sla_minutes,
-    )
-    return outcome
+        _fire_slack_events_shared(
+            card, regression_suspects=state.regression_suspects, rule_outcome=rule_outcome
+        )
 
 
 def _bare_state(report: FeedbackReport, repo: Repo) -> TriageState:
@@ -335,19 +285,3 @@ def _write_card(
         state.proposed_action,
     )
     return card
-
-
-def _record_llm_usage(session, state: TriageState, *, card_id: int) -> None:
-    for call in state.llm_calls:
-        session.add(
-            LLMUsage(
-                repo_id=state.repo_id,
-                card_id=card_id,
-                provider=DEFAULT_PROVIDER,
-                model=call.model,
-                prompt_tokens=call.prompt_tokens,
-                completion_tokens=call.completion_tokens,
-                cost_usd=Decimal(f"{call.cost_usd:.6f}"),
-                step_name=call.step,
-            )
-        )

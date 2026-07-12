@@ -86,68 +86,43 @@ ssh -L 8080:localhost:8080 user@your-server.com
 
 ### Step 4: Configure Your Domain (Production)
 
-#### Option A: Using Your Own Domain (Recommended)
+#### Option A: Let the Installer Handle It (Recommended)
+
+The installer wires up a real domain + automatic HTTPS (Caddy + Let's
+Encrypt) in one command — no hand-editing `.env`, no separate Caddy
+install. There is no `DOMAIN` variable; the correct names are
+`BUGSIFT_DOMAIN` and `BUGSIFT_ACME_EMAIL`.
 
 ```bash
 # 1. Point your domain to your server's IP
 # In your domain registrar's DNS settings:
 # A record: bugsift.yourdomain.com → your-server-ip
 
-# 2. Update bugsift configuration
+# 2. Re-run the installer with the domain set (safe to re-run on the
+#    same directory — it only adds the Caddy overlay + regenerates
+#    nothing if .env already exists):
 ssh user@your-server.com
+cd bugsift  # wherever BUGSIFT_DIR was on first install
+BUGSIFT_DOMAIN=bugsift.yourdomain.com BUGSIFT_ACME_EMAIL=you@yourdomain.com \
+  curl -fsSL https://github.com/joym-gits/bugsift/releases/latest/download/install.sh | bash
 
-# Edit .env file:
-nano .env
-
-# Add/update these lines:
-DOMAIN=bugsift.yourdomain.com
-ENVIRONMENT=production
-DEBUG=false
-
-# 3. Restart services with new config:
-docker compose restart
-
-# 4. Access at your domain:
-# http://bugsift.yourdomain.com:8080
-```
-
-#### Option B: Using Caddy for Automatic TLS (HTTPS)
-
-```bash
-# 1. Install Caddy on your server
-sudo apt-get install -y caddy
-
-# 2. Create Caddyfile
-sudo nano /etc/caddy/Caddyfile
-
-# Add this configuration:
-bugsift.yourdomain.com {
-  reverse_proxy localhost:8080
-}
-
-# 3. Start Caddy
-sudo systemctl restart caddy
-
-# 4. Access with automatic HTTPS:
+# 3. Access at your domain (HTTPS, automatic cert):
 # https://bugsift.yourdomain.com
 ```
 
-#### Option C: Using Let's Encrypt with Nginx (Already Installed)
+If you already ran the installer once **without** a domain, `.env`
+exists and is left alone — the installer will warn you to add
+`BUGSIFT_DOMAIN` / `BUGSIFT_ACME_EMAIL` / `BUGSIFT_PUBLIC_URL` to it by
+hand, or delete `.env` and re-run to regenerate cleanly.
 
-The installer includes Nginx. Configure it for TLS:
+#### Option B: Bring Your Own Reverse Proxy
 
-```bash
-# 1. Get a Let's Encrypt certificate:
-sudo certbot certonly --standalone \
-  -d bugsift.yourdomain.com
-
-# 2. Update Nginx config:
-# Edit: docker-compose.yml or nginx/nginx.conf
-# Point to your certificate
-
-# 3. Restart Nginx:
-docker compose restart nginx
-```
+If you'd rather run your own Traefik/Cloudflare Tunnel/nginx-proxy/ALB
+instead of the bundled Caddy, point it at this host's port 8080 (plain
+HTTP) and set `BUGSIFT_PUBLIC_URL` / `NEXT_PUBLIC_API_BASE_URL` in
+`.env` to your HTTPS domain, then `docker compose up -d` to pick up the
+change. See [deploy/README.md](deploy/README.md#putting-tls-in-front)
+for the full manual steps.
 
 ---
 
@@ -359,7 +334,7 @@ docker compose logs -f backend | grep "memory"
 ### Production Checklist
 
 - ✅ Use HTTPS (Caddy or Let's Encrypt)
-- ✅ Set `DEBUG=false` in .env
+- ✅ Set `BUGSIFT_ENV=production` in .env (the installer default — `development` skips hardening like HTTPS-only cookies and the bootstrap token gate)
 - ✅ Use strong database passwords
 - ✅ Enable firewall (UFW, Security Groups, etc.)
 - ✅ Restrict GitHub token scopes (minimal permissions)

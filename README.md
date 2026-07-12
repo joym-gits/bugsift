@@ -78,9 +78,10 @@ curl -fsSL https://github.com/joym-gits/bugsift/releases/latest/download/install
 # Open the dashboard (on your server):
 # http://your-domain.com:8080
 
-# For production, set your domain and enable TLS:
-export BUGSIFT_DOMAIN=bugsift.yourdomain.com
-curl -fsSL https://github.com/joym-gits/bugsift/releases/latest/download/install.sh | bash
+# For production, set your domain + contact email — the installer
+# fetches Caddy and provisions Let's Encrypt TLS in the same run:
+BUGSIFT_DOMAIN=bugsift.yourdomain.com BUGSIFT_ACME_EMAIL=you@yourdomain.com \
+  curl -fsSL https://github.com/joym-gits/bugsift/releases/latest/download/install.sh | bash
 
 # Pin a specific release for reproducibility:
 BUGSIFT_IMAGE_TAG=v0.2.0 \

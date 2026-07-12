@@ -100,10 +100,20 @@ unrecoverable.
 
 ## Putting TLS in front
 
-The default nginx listens on plain HTTP 8080 so you can put whatever
-reverse proxy you already run (Caddy, Traefik, Cloudflare Tunnel,
-nginx-proxy, ALB, …) in front. The repo ships a ready-made Caddy
-override:
+**New install:** pass `BUGSIFT_DOMAIN` + `BUGSIFT_ACME_EMAIL` to the
+installer and it handles everything below automatically — fetches
+`docker-compose.caddy.yml`, writes the right `.env` values, and starts
+the stack with both compose files merged:
+
+```sh
+BUGSIFT_DOMAIN=bugs.example.com BUGSIFT_ACME_EMAIL=ops@example.com \
+  curl -fsSL https://github.com/joym-gits/bugsift/releases/latest/download/install.sh | bash
+```
+
+**Existing install, or bringing your own reverse proxy** (Traefik,
+Cloudflare Tunnel, nginx-proxy, ALB, …) instead of the bundled Caddy:
+the default nginx listens on plain HTTP 8080, so wire your proxy to
+that port and do the equivalent by hand:
 
 ```sh
 # Add to .env:
@@ -120,8 +130,10 @@ docker compose \
   -f docker-compose.caddy.yml up -d
 ```
 
-Caddy provisions Let's Encrypt certificates on first boot and renews
-them automatically.
+Every `docker compose` command afterward (upgrade, restart, logs) must
+include both `-f` flags, or use your own proxy's config instead of
+`docker-compose.caddy.yml` entirely. Caddy provisions Let's Encrypt
+certificates on first boot and renews them automatically.
 
 ## Configuration reference
 

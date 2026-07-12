@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  Activity,
   BarChart3,
   Github,
   History,
@@ -43,6 +44,7 @@ const NAV: NavGroup[] = [
       { href: "/dashboard", label: "Queue", icon: Inbox },
       { href: "/history", label: "History", icon: History },
       { href: "/feedback", label: "Feedback apps", icon: MessageSquareWarning },
+      { href: "/monitoring", label: "Monitoring", icon: Activity },
     ],
   },
   {

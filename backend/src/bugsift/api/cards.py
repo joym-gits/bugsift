@@ -25,6 +25,7 @@ from bugsift.db.models import (
 from bugsift.feedback import issue_body as feedback_issue_body
 from bugsift.github import config as app_config
 from bugsift.github.client import GithubClient
+from bugsift.monitoring.correlator import mark_resolved_for_card
 from bugsift.security import crypto
 from bugsift.tickets.jira import JiraApiError, JiraAuthError, JiraClient
 from bugsift.workers import enqueue as enqueue_jobs
@@ -73,6 +74,8 @@ class CardResponse(BaseModel):
     # opens the GitHub issue (at which point ``github_issue_number`` fills in).
     issue_number: int | None = None
     source: str = "github"
+    # ``source='analysis'`` cards only: bug|security|performance|maintainability|reliability.
+    finding_category: str | None = None
     github_issue_number: int | None = None
     github_issue_url: str | None = None
     ticket_provider: str | None = None
@@ -308,6 +311,7 @@ async def skip_card(
     card.status = "skipped"
     card.decided_at = datetime.now(UTC)
     card.decided_by_user_id = user.id
+    await mark_resolved_for_card(session, card_id=card.id, resolution_status="skipped")
     await audit_record(
         session,
         actor=user,
@@ -377,6 +381,13 @@ async def approve_card(
             admin_note=(body.admin_note if body else None),
             assignees_override=assignees_override,
         )
+    elif card.source == "analysis":
+        # No pre-existing GitHub issue (unlike source='github') and no
+        # FeedbackApp/report backing it (unlike source='feedback') —
+        # approving a finding files a fresh issue in the repo it came from.
+        await _approve_analysis_card(
+            card=card, repo=repo, client=client, assignees_override=assignees_override
+        )
     else:
         await _approve_github_card(
             card=card, repo=repo, client=client, assignees_override=assignees_override
@@ -394,6 +405,7 @@ async def approve_card(
     card.status = "posted"
     card.decided_at = datetime.now(UTC)
     card.decided_by_user_id = user.id
+    await mark_resolved_for_card(session, card_id=card.id, resolution_status="posted")
     await audit_record(
         session,
         actor=user,
@@ -487,6 +499,69 @@ async def _approve_github_card(
             await client.close_issue(repo.full_name, card.issue_number)
         except Exception:
             logger.warning("close failed card_id=%s; continuing", card.id)
+
+
+async def _approve_analysis_card(
+    *,
+    card: TriageCard,
+    repo: Repo,
+    client,
+    assignees_override: list[str] | None = None,
+) -> None:
+    """File a fresh GitHub issue for a repo-analysis finding.
+
+    Analysis cards have no pre-existing issue (``issue_number`` is
+    always ``None``, unlike ``source='github'``) and no FeedbackApp/
+    report backing them to route through a ticket destination (unlike
+    ``source='feedback'``) — this is the third, simplest approve path:
+    build a body from the finding fields already on the card and open
+    an issue directly in the repo it came from.
+    """
+    title = card.draft_comment or "Code analysis finding"
+    parts = [card.rationale or ""]
+    meta = []
+    if card.finding_category:
+        meta.append(f"**Category:** {card.finding_category}")
+    if card.severity:
+        meta.append(f"**Severity:** {card.severity}")
+    if meta:
+        parts.append("\n".join(meta))
+    if card.suspected_files_json:
+        files = "\n".join(
+            f"- `{f.get('file_path')}`" + (f" — {f['rationale']}" if f.get("rationale") else "")
+            for f in card.suspected_files_json
+            if isinstance(f, dict) and f.get("file_path")
+        )
+        if files:
+            parts.append(f"**Files:**\n{files}")
+    parts.append("_Filed automatically from repo analysis by bugsift._")
+    body = "\n\n".join(p for p in parts if p)
+
+    assignees = _resolve_assignees(card, assignees_override)
+    try:
+        created = await client.create_issue(
+            repo.full_name,
+            title=title,
+            body=body,
+            labels=None,
+            assignees=assignees or None,
+        )
+    except Exception as e:
+        logger.exception("failed to create GitHub issue for analysis card_id=%s", card.id)
+        raise HTTPException(
+            status_code=502, detail=f"failed to create GitHub issue: {e}"
+        ) from e
+
+    github_number = created.get("number")
+    if isinstance(github_number, int):
+        card.github_issue_number = github_number
+        card.ticket_provider = "github"
+        card.ticket_key = str(github_number)
+        card.ticket_url = f"https://github.com/{repo.full_name}/issues/{github_number}"
+    card.final_comment = body
+    logger.info(
+        "analysis card_id=%s opened github issue %s#%s", card.id, repo.full_name, github_number
+    )
 
 
 async def _approve_feedback_card(
@@ -796,6 +871,7 @@ def _card_response(
         repo_default_branch=repo_default_branch,
         issue_number=card.issue_number,
         source=card.source or "github",
+        finding_category=card.finding_category,
         github_issue_number=card.github_issue_number,
         github_issue_url=issue_url,
         ticket_provider=card.ticket_provider,

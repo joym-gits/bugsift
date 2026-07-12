@@ -36,6 +36,7 @@ from bugsift.db.models import (
     FeedbackDigest,
     FeedbackReport,
     Installation,
+    LLMUsage,
     Repo,
     RepoAnalysis,
     RepoAnalysisChatMessage,
@@ -638,6 +639,22 @@ async def ask_analysis_chat(
         ),
     )
     session.add(assistant_msg)
+    # Mirror the same call onto llm_usage so Q&A spend shows up in the
+    # per-repo usage rollup alongside the analysis/triage pipelines —
+    # this call site previously only recorded cost on the chat row.
+    session.add(
+        LLMUsage(
+            repo_id=repo.id,
+            card_id=None,
+            analysis_id=analysis.id,
+            provider=DEFAULT_PROVIDER,
+            model=result.model,
+            prompt_tokens=result.prompt_tokens,
+            completion_tokens=result.completion_tokens,
+            cost_usd=Decimal(f"{result.cost_usd:.6f}") if result.cost_usd else 0,
+            step_name="qa",
+        )
+    )
     await session.commit()
     await session.refresh(assistant_msg)
 

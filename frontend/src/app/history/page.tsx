@@ -35,21 +35,30 @@ const VERDICT_OPTIONS = [
   { value: "sandbox_error", label: "sandbox error" },
 ];
 
+const SOURCE_OPTIONS = [
+  { value: "", label: "any source" },
+  { value: "github", label: "github" },
+  { value: "feedback", label: "in-app feedback" },
+  { value: "analysis", label: "code analysis" },
+];
+
 export default function HistoryPage() {
   const me = useMe();
   const signedIn = Boolean(me.data);
   const [status, setStatus] = useState("");
   const [classification, setClassification] = useState("");
   const [verdict, setVerdict] = useState("");
+  const [source, setSource] = useState("");
   const [openCardId, setOpenCardId] = useState<number | null>(null);
   const filters: CardFilters = useMemo(
     () => ({
       status: status || undefined,
       classification: classification || undefined,
       verdict: verdict || undefined,
+      source: source || undefined,
       limit: 200,
     }),
-    [status, classification, verdict],
+    [status, classification, verdict, source],
   );
   const cards = useCards(signedIn, filters);
   const openCard: Card | null =
@@ -80,6 +89,7 @@ export default function HistoryPage() {
               options={CLASSIFICATION_OPTIONS}
             />
             <Filter id="verdict" label="Verdict" value={verdict} onChange={setVerdict} options={VERDICT_OPTIONS} />
+            <Filter id="source" label="Source" value={source} onChange={setSource} options={SOURCE_OPTIONS} />
             <div className="flex flex-1 items-end justify-end">
               <span className="text-xs text-muted-foreground">
                 showing {cards.data?.length ?? 0} card

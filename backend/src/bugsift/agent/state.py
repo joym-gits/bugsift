@@ -60,6 +60,7 @@ class LLMCallRecord:
     prompt_tokens: int
     completion_tokens: int
     cost_usd: float
+    duration_ms: int | None = None
 
 
 @dataclass

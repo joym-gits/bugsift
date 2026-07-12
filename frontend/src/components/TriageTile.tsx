@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Bug,
   Clock,
   GitPullRequestArrow,
   MessageSquareWarning,
@@ -62,6 +63,8 @@ export function TriageTile({
           <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
             {card.source === "feedback" ? (
               <MessageSquareWarning className="h-3.5 w-3.5" />
+            ) : card.source === "analysis" ? (
+              <Bug className="h-3.5 w-3.5" />
             ) : (
               <GitPullRequestArrow className="h-3.5 w-3.5" />
             )}

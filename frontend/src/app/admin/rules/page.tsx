@@ -346,7 +346,7 @@ function EditModal({
             <Row
               label="Source"
               value={draft.match.source ?? ""}
-              options={["", "github", "feedback"]}
+              options={["", "github", "feedback", "analysis"]}
               onChange={(v) => patchMatch({ source: v || undefined })}
             />
             <Row

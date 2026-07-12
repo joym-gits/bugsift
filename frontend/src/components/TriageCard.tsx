@@ -68,12 +68,15 @@ export function TriageCard({ card }: { card: Card }) {
             <span
               className={
                 "rounded-full border px-2 py-0.5 " +
-                (card.source === "feedback"
-                  ? "border-info/40 bg-info/10 text-info"
-                  : "")
+                (card.source === "feedback" ? "border-info/40 bg-info/10 text-info" : "")
               }
             >
-              {card.source === "feedback" ? "in-app feedback" : "github"}
+              {card.source === "feedback"
+                ? "in-app feedback"
+                : card.source === "analysis"
+                  ? "code analysis"
+                  : "github"}
+              {card.source === "analysis" && card.finding_category ? ` · ${card.finding_category}` : ""}
             </span>
             <span className="rounded-full border px-2 py-0.5">
               {card.classification ?? "unclassified"}

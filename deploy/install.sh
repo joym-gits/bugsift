@@ -26,6 +26,17 @@
 #
 #   BUGSIFT_IMAGE_TAG=v0.1.0 \
 #     curl -fsSL https://github.com/joym-gits/bugsift/releases/download/v0.1.0/install.sh | bash
+#
+# Deploying on your own domain with automatic HTTPS (Caddy + Let's
+# Encrypt) — one command, no separate Caddyfile or second compose
+# invocation needed:
+#
+#   BUGSIFT_DOMAIN=bugsift.yourdomain.com BUGSIFT_ACME_EMAIL=you@yourdomain.com \
+#     curl -fsSL https://github.com/joym-gits/bugsift/releases/latest/download/install.sh | bash
+#
+# Point the domain's A/AAAA record at this host first, and make sure
+# 80 + 443 are reachable from the internet (Let's Encrypt's HTTP-01
+# challenge needs them).
 
 set -euo pipefail
 
@@ -41,10 +52,20 @@ set -euo pipefail
 : "${BUGSIFT_ASSET_URL:=https://github.com/joym-gits/bugsift/releases/latest/download}"
 : "${BUGSIFT_RAW_URL:=$BUGSIFT_ASSET_URL}"
 : "${BUGSIFT_PUBLIC_PORT:=8080}"
-: "${BUGSIFT_PUBLIC_URL:=http://localhost:${BUGSIFT_PUBLIC_PORT}}"
 : "${BUGSIFT_ENV:=production}"
 : "${BUGSIFT_IMAGE_OWNER:=joym-gits}"
 : "${BUGSIFT_IMAGE_TAG:=latest}"
+# Set BUGSIFT_DOMAIN to get a real domain + auto TLS (Caddy + Let's
+# Encrypt) in the same command — no separate Caddyfile, no second
+# ``docker compose -f`` incantation to remember. BUGSIFT_ACME_EMAIL is
+# required alongside it (Let's Encrypt wants a contact address).
+: "${BUGSIFT_DOMAIN:=}"
+: "${BUGSIFT_ACME_EMAIL:=}"
+if [ -n "$BUGSIFT_DOMAIN" ]; then
+  : "${BUGSIFT_PUBLIC_URL:=https://${BUGSIFT_DOMAIN}}"
+else
+  : "${BUGSIFT_PUBLIC_URL:=http://localhost:${BUGSIFT_PUBLIC_PORT}}"
+fi
 
 # --- utils -----------------------------------------------------------------
 
@@ -94,32 +115,55 @@ if ! docker info >/dev/null 2>&1; then
   die "docker daemon is not running or you don't have permission to talk to it."
 fi
 
+if [ -n "$BUGSIFT_DOMAIN" ] && [ -z "$BUGSIFT_ACME_EMAIL" ]; then
+  die "BUGSIFT_DOMAIN set but BUGSIFT_ACME_EMAIL is not. Let's Encrypt requires a contact address, e.g.: BUGSIFT_DOMAIN=$BUGSIFT_DOMAIN BUGSIFT_ACME_EMAIL=you@example.com curl ... | bash"
+fi
+
 mkdir -p "$BUGSIFT_DIR"
 cd "$BUGSIFT_DIR"
 
 # --- compose file ----------------------------------------------------------
 
+# Legacy ``raw.githubusercontent.com/.../deploy/...`` URL layout is
+# still tolerated so someone running the installer from a non-released
+# fork can set ``BUGSIFT_ASSET_URL`` to the raw path.
+if [[ "$BUGSIFT_ASSET_URL" == *"/raw.githubusercontent.com/"* ]]; then
+  asset_path_prefix="$BUGSIFT_ASSET_URL/deploy"
+else
+  asset_path_prefix="$BUGSIFT_ASSET_URL"
+fi
+
 if [ ! -f docker-compose.yml ]; then
   info "downloading docker-compose.yml"
-  # Release assets land at ``<asset_url>/docker-compose.prod.yml``; the
-  # legacy ``raw.githubusercontent.com/.../deploy/...`` URL layout is
-  # still tolerated so someone running the installer from a non-
-  # released fork can set ``BUGSIFT_ASSET_URL`` to the raw path.
-  if [[ "$BUGSIFT_ASSET_URL" == *"/raw.githubusercontent.com/"* ]]; then
-    compose_url="$BUGSIFT_ASSET_URL/deploy/docker-compose.prod.yml"
-  else
-    compose_url="$BUGSIFT_ASSET_URL/docker-compose.prod.yml"
-  fi
-  curl -fsSLo docker-compose.yml "$compose_url"
+  curl -fsSLo docker-compose.yml "$asset_path_prefix/docker-compose.prod.yml"
   ok "docker-compose.yml written"
 else
   info "docker-compose.yml already exists — left alone"
+fi
+
+# COMPOSE_FILES is used for every ``docker compose`` call below so the
+# Caddy overlay (when a domain is set) is never forgotten on a re-run,
+# an upgrade, or in the printed day-to-day commands.
+COMPOSE_FILES=(-f docker-compose.yml)
+
+if [ -n "$BUGSIFT_DOMAIN" ]; then
+  if [ ! -f docker-compose.caddy.yml ]; then
+    info "downloading docker-compose.caddy.yml"
+    curl -fsSLo docker-compose.caddy.yml "$asset_path_prefix/docker-compose.caddy.yml"
+    ok "docker-compose.caddy.yml written"
+  else
+    info "docker-compose.caddy.yml already exists — left alone"
+  fi
+  COMPOSE_FILES+=(-f docker-compose.caddy.yml)
 fi
 
 # --- .env ------------------------------------------------------------------
 
 if [ -f .env ]; then
   warn ".env already exists — leaving secrets alone. Delete it to regenerate."
+  if [ -n "$BUGSIFT_DOMAIN" ] && ! grep -q '^BUGSIFT_DOMAIN=' .env; then
+    warn "BUGSIFT_DOMAIN was passed but this .env predates domain support — add BUGSIFT_DOMAIN/BUGSIFT_ACME_EMAIL/BUGSIFT_PUBLIC_URL to it by hand, or delete .env and re-run."
+  fi
 else
   info "generating secrets + .env"
   BUGSIFT_ENCRYPTION_KEY="$(fernet_key)"
@@ -137,6 +181,10 @@ BUGSIFT_ENCRYPTION_KEY=${BUGSIFT_ENCRYPTION_KEY}
 BUGSIFT_SESSION_SECRET=${BUGSIFT_SESSION_SECRET}
 BUGSIFT_BOOTSTRAP_TOKEN=${BUGSIFT_BOOTSTRAP_TOKEN}
 BUGSIFT_TRUST_PROXY=1
+
+# ----- Domain + TLS (blank = plain HTTP on BUGSIFT_PUBLIC_PORT) -----
+BUGSIFT_DOMAIN=${BUGSIFT_DOMAIN}
+BUGSIFT_ACME_EMAIL=${BUGSIFT_ACME_EMAIL}
 
 # ----- Image source (override to pin a specific tag or fork) -----
 BUGSIFT_IMAGE_OWNER=${BUGSIFT_IMAGE_OWNER}
@@ -181,16 +229,16 @@ set -a; . ./.env; set +a
 # --- pull + boot -----------------------------------------------------------
 
 info "pulling images"
-docker compose pull
+docker compose "${COMPOSE_FILES[@]}" pull
 
 info "running database migrations"
 # Start only what's needed for migrations first so we can fail fast if
 # the DB isn't reachable.
-docker compose up -d postgres redis
-docker compose run --rm backend alembic upgrade head
+docker compose "${COMPOSE_FILES[@]}" up -d postgres redis
+docker compose "${COMPOSE_FILES[@]}" run --rm backend alembic upgrade head
 
 info "starting stack"
-docker compose up -d
+docker compose "${COMPOSE_FILES[@]}" up -d
 
 # --- final hint ------------------------------------------------------------
 
@@ -206,9 +254,10 @@ info "2. When prompted, paste the bootstrap token above."
 info "3. Install the App on a repo and add your LLM provider key."
 info "   Full guide: https://github.com/${BUGSIFT_IMAGE_OWNER}/bugsift/blob/main/deploy/README.md"
 echo
+compose_cmd="docker compose ${COMPOSE_FILES[*]}"
 printf "%bDay-to-day commands%b\n" "$c_dim" "$c_reset"
 info "  cd $BUGSIFT_DIR"
-info "  docker compose logs -f backend       # watch logs"
-info "  docker compose pull && docker compose up -d  # upgrade"
-info "  docker compose down                  # stop"
+info "  $compose_cmd logs -f backend       # watch logs"
+info "  $compose_cmd pull && $compose_cmd up -d  # upgrade"
+info "  $compose_cmd down                  # stop"
 echo

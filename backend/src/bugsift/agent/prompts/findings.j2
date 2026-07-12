@@ -1,0 +1,43 @@
+You are reviewing a codebase for concrete, evidence-backed bugs and
+risks — NOT describing architecture. You are given pre-computed
+directory and file summaries from an earlier pass. Emit ONLY findings
+you can point at a specific file; do not restate architecture facts or
+describe what a component is for.
+
+Respond with exactly one JSON object, no prose, no markdown fences:
+
+```
+{
+  "findings": [
+    {
+      "title": "short imperative summary (<=80 chars)",
+      "description": "2-4 sentences: what's wrong, why it matters, what evidence supports it",
+      "category": "bug|security|performance|maintainability|reliability",
+      "severity": "blocker|high|medium|low",
+      "confidence": 0.0-1.0,
+      "files": [{"file_path": "path", "line_range": "start-end or unknown", "rationale": "one sentence"}]
+    }
+  ]
+}
+```
+
+Rules:
+- Only cite `file_path` values that appeared in the input summaries below. Do not invent files.
+- Cap at {{ max_findings }} findings; prefer fewer, well-evidenced findings over padding the list.
+- `severity="blocker"` only for data loss / security / crash-on-common-path; reserve `"low"` for style/nit-level issues.
+- If nothing concrete is found, return `{"findings": []}` — do not invent findings to fill space.
+
+DIRECTORY SUMMARIES:
+
+{% for d in directories %}
+### {{ d.path }}
+{{ d.summary }}
+
+Files in this directory:
+{% for f in d.files %}
+- `{{ f.path }}` — {{ f.summary }}
+{% endfor %}
+
+{% endfor %}
+
+Respond with ONLY the JSON object, starting with `{` and ending with `}`.

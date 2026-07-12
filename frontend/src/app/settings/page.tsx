@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Hash, KeyRound, Ticket, Trash2, Wallet } from "lucide-react";
+import { ChevronDown, ChevronUp, Hash, KeyRound, Ticket, Trash2, Wallet } from "lucide-react";
 
 import { AppShell, EmptyState, PageHeader, Skeleton } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,7 @@ import {
   useTestSlackDestination,
   useTicketDestinations,
   useUpdateSlackDestination,
+  useUsageHistory,
 } from "@/lib/hooks";
 
 const PROVIDERS: ApiKey["provider"][] = ["anthropic", "openai", "google", "ollama"];
@@ -61,7 +62,7 @@ export default function SettingsPage() {
             description="LLM keys, spend, and per-repo budget. Keys are Fernet-encrypted at rest."
           />
 
-          <SpendCard loading={usage.isLoading} data={usage.data} />
+          <SpendCard loading={usage.isLoading} data={usage.data} signedIn={signedIn} />
 
           <section className="mt-6 rounded-lg border bg-card p-6 shadow-elev-1">
             <div className="mb-1 flex items-center gap-2">
@@ -711,6 +712,7 @@ function SlackDestinationRow({
 function SpendCard({
   loading,
   data,
+  signedIn,
 }: {
   loading: boolean;
   data:
@@ -726,7 +728,11 @@ function SpendCard({
         }[];
       }
     | undefined;
+  signedIn: boolean;
 }) {
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const history = useUsageHistory(signedIn && historyOpen, 6);
+
   return (
     <section className="rounded-lg border bg-card p-6 shadow-elev-1">
       <div className="mb-1 flex items-center gap-2">
@@ -781,6 +787,48 @@ function SpendCard({
         <p className="mt-4 text-sm text-muted-foreground">
           No repos installed yet, or no LLM calls have been made this month.
         </p>
+      )}
+
+      <button
+        type="button"
+        onClick={() => setHistoryOpen((v) => !v)}
+        className="mt-4 flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+      >
+        {historyOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+        Last 6 months
+      </button>
+      {historyOpen && (
+        <div className="mt-2">
+          {history.isLoading ? (
+            <Skeleton className="h-24 w-full" />
+          ) : history.data && history.data.length > 0 ? (
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left text-muted-foreground">
+                  <th className="pb-1 font-medium">Month</th>
+                  <th className="pb-1 font-medium">Repo</th>
+                  <th className="pb-1 text-right font-medium">Spent</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {history.data.map((p, i) => (
+                  <tr key={`${p.repo_id}-${p.month_start_utc}-${i}`}>
+                    <td className="py-1">
+                      {new Date(p.month_start_utc).toLocaleDateString(undefined, {
+                        month: "short",
+                        year: "numeric",
+                      })}
+                    </td>
+                    <td className="truncate py-1">{p.repo_full_name}</td>
+                    <td className="py-1 text-right">${p.spent_usd.toFixed(4)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="text-xs text-muted-foreground">No usage in this window.</p>
+          )}
+        </div>
       )}
     </section>
   );
