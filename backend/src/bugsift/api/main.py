@@ -146,12 +146,9 @@ def create_app() -> FastAPI:
     async def health() -> dict[str, str]:
         return {"status": "ok", "version": __version__}
 
+    # Mount all routers at root level for direct backend access
     app.include_router(auth_router)
-    # Also expose the same auth endpoints under the `/api` prefix so that
-    # frontend-origin callback URLs like
-    # `https://<frontend>/api/auth/github/callback` reach the backend
-    # directly in local/dev setups where the frontend does not proxy `/api`.
-    app.include_router(auth_router, prefix="/api")
+    app.include_router(manifest_router)
     app.include_router(keys_router)
     app.include_router(webhooks_router)
     app.include_router(github_router)
@@ -159,7 +156,6 @@ def create_app() -> FastAPI:
     app.include_router(repos_router)
     app.include_router(llm_router)
     app.include_router(usage_router)
-    app.include_router(manifest_router)
     app.include_router(github_settings_router)
     app.include_router(feedback_router)
     app.include_router(widget_router)
@@ -170,6 +166,28 @@ def create_app() -> FastAPI:
     app.include_router(metrics_router)
     app.include_router(rules_router)
     app.include_router(monitoring_router)
+
+    # Also expose all endpoints under the `/api` prefix for the proxied frontend
+    # in local/dev setups where the frontend proxies `/api` to the backend.
+    app.include_router(auth_router, prefix="/api")
+    app.include_router(manifest_router, prefix="/api")
+    app.include_router(keys_router, prefix="/api")
+    app.include_router(webhooks_router, prefix="/api")
+    app.include_router(github_router, prefix="/api")
+    app.include_router(cards_router, prefix="/api")
+    app.include_router(repos_router, prefix="/api")
+    app.include_router(llm_router, prefix="/api")
+    app.include_router(usage_router, prefix="/api")
+    app.include_router(github_settings_router, prefix="/api")
+    app.include_router(feedback_router, prefix="/api")
+    app.include_router(widget_router, prefix="/api")
+    app.include_router(slack_router, prefix="/api")
+    app.include_router(tickets_router, prefix="/api")
+    app.include_router(users_router, prefix="/api")
+    app.include_router(audit_router, prefix="/api")
+    app.include_router(metrics_router, prefix="/api")
+    app.include_router(rules_router, prefix="/api")
+    app.include_router(monitoring_router, prefix="/api")
 
     return app
 

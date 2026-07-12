@@ -22,13 +22,20 @@ import type { NextRequest } from "next/server";
  */
 export function middleware(request: NextRequest) {
   const nonce = generateNonce();
+  const isDev = process.env.NODE_ENV === "development";
   const csp = [
     "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`,
+    // In dev mode, allow unsafe-eval for webpack hot reloading
+    isDev
+      ? `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' 'unsafe-eval'`
+      : `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`,
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: https:",
     "font-src 'self' data:",
-    "connect-src 'self'",
+    // In dev mode, allow connections to backend API
+    isDev
+      ? "connect-src 'self' http://localhost:8000 ws:"
+      : "connect-src 'self'",
     "frame-ancestors 'none'",
     "base-uri 'self'",
     "form-action 'self'",
