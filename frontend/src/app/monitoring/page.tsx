@@ -155,7 +155,7 @@ export default function MonitoringPage() {
               </ul>
             ) : (
               <p className="text-sm text-muted-foreground">
-                No monitoring events yet. Generate a token above and point your provider's
+                No monitoring events yet. Generate a token above and point your provider&apos;s
                 outbound webhook at <code className="rounded bg-muted px-1 py-0.5">POST /monitoring/ingest</code>.
               </p>
             )}
